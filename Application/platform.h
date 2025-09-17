@@ -17,7 +17,6 @@
 
 #include <stdint.h>
 #include <string.h>
-#include "stm32g4xx.h"
 
 // Code Profiling
 //#define SPD_PROFILE
