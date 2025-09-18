@@ -31,9 +31,6 @@
 
 #include "application.h"
 
-int status = 0;
-int off = 0;
-
 volatile char Uart_RXBuffer[UART_BUFFER_SIZE];
 volatile size_t Uart_RxRcvIndex = 0;
 char UartComm_RXBuffer[UART_BUFFER_SIZE];
@@ -126,6 +123,70 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 #   define _CriticalExit()
 #   define _CriticalEnter()
 #endif
+
+void Uart_DoCommand(){
+
+    if( UartComm_CmdReady == 0 ){
+        memcpy(UartComm_RXBuffer , (char*)Uart_RXBuffer, Uart_RxRcvIndex+1 ); //copy ending 0
+        UartComm_RXSize = Uart_RxRcvIndex;
+        UartComm_CmdReady = 1;
+    }
+    else {
+        //TODO full command got lost
+    }
+}
+
+void UartComm_Start() {
+    HAL_UART_StateTypeDef State;
+    _CriticalEnter();
+    Uart_RxRcvIndex = 0;
+    UartActive = 1;
+    State = HAL_UART_GetState(&huart2);
+    if (State != HAL_UART_STATE_BUSY_TX_RX && State != HAL_UART_STATE_BUSY_RX) {
+        // arm it
+#if DMA_RX
+        HAL_UART_Receive_DMA(&huart2, (uint8_t *) Uart_RXBuffer, sizeof(Uart_RXBuffer));
+#else
+        HAL_UART_Receive_IT(&huart2, (uint8_t*) Uart_RXBuffer, 1);
+#endif
+    }
+    _CriticalExit();
+}
+
+void UartComm_Stop() {
+    _CriticalEnter();
+    UartActive = 0;
+    //we may stop/deinit uart to ensure recetpion is aborted
+    _CriticalExit();
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+    int ContinueRX = 1;
+    Uart_nRxCb++;
+    if (!UartActive) {
+        return;
+    }
+
+    nUartRxCb_User++;
+    if (Uart_RXBuffer[Uart_RxRcvIndex] == '\r' || Uart_RXBuffer[Uart_RxRcvIndex] == '\n') {
+        Uart_RXBuffer[Uart_RxRcvIndex] = 0;
+        ContinueRX = 0;
+        Uart_DoCommand();
+    }
+    else {
+        if (Uart_RxRcvIndex >= sizeof(Uart_RXBuffer)-1) {
+            // overrun the buffer reset
+            Uart_RxRcvIndex = 0;
+            Uart_nOverrun++;
+        }
+        else {
+            Uart_RxRcvIndex++;
+        }
+    }
+    if (ContinueRX)
+        HAL_UART_Receive_IT(huart, (uint8_t *) &Uart_RXBuffer[Uart_RxRcvIndex], 1);
+}
+
 
 /**
  * Init SPD with input parameters and optionally reset state machine (needed the first time)
@@ -262,11 +323,7 @@ int init_vl53lmz_sensor() {
     return status;
 }
 
-
-int vl53lmz_sci_calculate_required_memory(
-        VL53LMZ_Motion_Configuration    *p_sci_config,
-        uint32_t                        *p_required_memory)
-{
+int vl53lmz_sci_calculate_required_memory(VL53LMZ_Motion_Configuration *p_sci_config, uint32_t *p_required_memory) {
     uint16_t mem_feature;
     uint16_t mem_var;
     uint16_t mem_amb_per_bin;
@@ -274,44 +331,24 @@ int vl53lmz_sci_calculate_required_memory(
     uint16_t mem_fp_description;
     uint16_t mem_overheard;
 
-    mem_feature = VL53LMZ_SCI_FEATURE_ELT_BYTE
-            * p_sci_config->nb_of_aggregates
-            * p_sci_config->feature_length
-            * (1+VL53LMZ_SCI_STORE_PREV_F);
-    mem_var = VL53LMZ_SCI_FEATURE_ELT_BYTE
-            * p_sci_config->nb_of_aggregates
-            * (p_sci_config->feature_length*VL53LMZ_SCI_STORE_VAR)
-            * (1+VL53LMZ_SCI_STORE_PREV_F);
-    mem_amb_per_bin = VL53LMZ_SCI_FEATURE_ELT_BYTE
-            * (1-VL53LMZ_SCI_STORE_VAR)
-            * p_sci_config->nb_of_aggregates
-            * (1+VL53LMZ_SCI_STORE_PREV_F);
-    mem_amb_per_bin_var = p_sci_config->nb_of_aggregates
-            * 4;
+    mem_feature = VL53LMZ_SCI_FEATURE_ELT_BYTE * p_sci_config->nb_of_aggregates * p_sci_config->feature_length
+            * (1 + VL53LMZ_SCI_STORE_PREV_F);
+    mem_var = VL53LMZ_SCI_FEATURE_ELT_BYTE * p_sci_config->nb_of_aggregates
+            * (p_sci_config->feature_length * VL53LMZ_SCI_STORE_VAR) * (1 + VL53LMZ_SCI_STORE_PREV_F);
+    mem_amb_per_bin = VL53LMZ_SCI_FEATURE_ELT_BYTE * (1 - VL53LMZ_SCI_STORE_VAR) * p_sci_config->nb_of_aggregates
+            * (1 + VL53LMZ_SCI_STORE_PREV_F);
+    mem_amb_per_bin_var = p_sci_config->nb_of_aggregates * 4;
     mem_fp_description = p_sci_config->nb_of_aggregates
-            * (p_sci_config->feature_length
-                    + p_sci_config->feature_length
-                    * VL53LMZ_SCI_STORE_VAR+1)
-            * (1+VL53LMZ_SCI_STORE_PREV_F)
-            + (1-VL53LMZ_SCI_STORE_VAR)
-                * p_sci_config->nb_of_aggregates
-                * (1+VL53LMZ_SCI_STORE_PREV_F);
-    mem_overheard = 1+(1+VL53LMZ_SCI_STORE_PREV_F)
-            +p_sci_config->nb_of_aggregates;
+            * (p_sci_config->feature_length + p_sci_config->feature_length * VL53LMZ_SCI_STORE_VAR + 1)
+            * (1 + VL53LMZ_SCI_STORE_PREV_F)
+            + (1 - VL53LMZ_SCI_STORE_VAR) * p_sci_config->nb_of_aggregates * (1 + VL53LMZ_SCI_STORE_PREV_F);
+    mem_overheard = 1 + (1 + VL53LMZ_SCI_STORE_PREV_F) + p_sci_config->nb_of_aggregates;
 
-    *p_required_memory =
-            mem_feature
-            +mem_var
-            +mem_amb_per_bin
-            +mem_amb_per_bin_var
-            +mem_fp_description
-            +mem_overheard
-            +VL53LMZ_SCI_PADDING_BYTES
-            +VL53LMZ_SCI_PARTIALS_BYTES;
+    *p_required_memory = mem_feature + mem_var + mem_amb_per_bin + mem_amb_per_bin_var + mem_fp_description
+            + mem_overheard + VL53LMZ_SCI_PADDING_BYTES + VL53LMZ_SCI_PARTIALS_BYTES;
 
     return VL53LMZ_STATUS_OK;
 }
-
 
 /**
  *
@@ -544,30 +581,6 @@ int SEN_SetParamsForTracking() {
     return 0;
 }
 
-void UartComm_Start() {
-    HAL_UART_StateTypeDef State;
-    _CriticalEnter();
-    Uart_RxRcvIndex = 0;
-    UartActive = 1;
-    State = HAL_UART_GetState(&huart2);
-    if (State != HAL_UART_STATE_BUSY_TX_RX && State != HAL_UART_STATE_BUSY_RX) {
-        // arm it
-#if DMA_RX
-        HAL_UART_Receive_DMA(&huart2, (uint8_t *) Uart_RXBuffer, sizeof(Uart_RXBuffer));
-#else
-        HAL_UART_Receive_IT(&huart2, (uint8_t*) Uart_RXBuffer, 1);
-#endif
-    }
-    _CriticalExit();
-}
-
-void UartComm_Stop() {
-    _CriticalEnter();
-    UartActive = 0;
-    //we may stop/deinit uart to ensure recetpion is aborted
-    _CriticalExit();
-}
-
 /**
  * Returns a non null value if a new ranging data is available
  */
@@ -653,9 +666,9 @@ int SEN_SetParamsForAutonomous() {
     Params.RangingPeriod = Params.spdAutonomousRangingPeriod;
     Params.IntegrationTime = Params.spdAutonomousIntegrationTime;
     Params.sciDmax = Params.spdApproachDistance_mm;
-    Params.sciDmin =
-            (Params.sciDmax < SPD_SCI_DEFAULT_DCIMAX) ?
-                    SPD_SCI_DEFAULT_DCIMIN : (Params.sciDmax - SPD_SCI_MAX_SUPPORTED_RANGE);
+    Params.sciDmin = (Params.sciDmax < SPD_SCI_DEFAULT_DCIMAX) ?
+    SPD_SCI_DEFAULT_DCIMIN :
+                                                                 (Params.sciDmax - SPD_SCI_MAX_SUPPORTED_RANGE);
     Params.disablePipe = 1; //Used to decrease the power consumption
     Params.sciDetectionThreshold =
             LMZDev.platform.module_type == 0 ? 100 : (LMZDev.platform.module_type == 1 ? 150 : 100); //L5=100 / L7 = 150 / L8=100
@@ -739,18 +752,23 @@ int SPD_ChangeSensorMode(SPD_Data_t *pSPDData) {
     return status;
 }
 
+/**
+ *
+ */
 void application_setup(void) {
+
+    int status = 0;
 
     UartComm_Start();
 
 #ifdef STM32F401xE
     /* patch the uart setup not to do filtering */
     huart2.Instance->CR3 |= USART_CR3_ONEBIT;
-  #endif
+#endif
 
     /* Clean the Serial Terminal */
     HAL_Delay(1000);
-    uart_printf("\x1b[2J");
+    uart_printf("\x1b[2J");         // ESC [ 2J        Erase entire screen
     uart_printf("\x1b[1;1H");
     uart_printf("SPD ULD SW Kit version %s\n", SPD_KIT_ULD_VERSION);
 
@@ -782,9 +800,61 @@ void application_setup(void) {
     time_data.curr_tstp = GET_TIME_STAMP();
 }
 
-void application_loop(void) {
+/**
+ *
+ */
+int application_loop(void) {
+
+    int status = 0;
+    int off = 0;
 
     while (1) {
+
+        /*******************************/
+        /* UART RX Receiver management */
+        /*******************************/
+        if (UartComm_CmdReady) {
+            SC_HandleCmd(UartComm_RXBuffer);
+            UartComm_CmdReady = 0;
+            UartComm_Start(); // restart RX
+        }
+
+        /* SPD algo logging level */
+        SPDLoggingLevel = CommandData.SPDLoggingLevel;
+
+        /*******************************/
+        /*       START command         */
+        /*******************************/
+        /* Start ranging upon request */
+        if (CommandData.enable) {
+            CommandData.enable = 0;
+            if (ranging == 0) {
+                ranging = 1;
+                // Wake-up sensor from VL53LMZ_POWER_MODE_SLEEP or VL53LMZ_POWER_MODE_DEEP_SLEEP to VL53LMZ_POWER_MODE_WAKEUP
+                status = vl53lmz_set_power_mode(&LMZDev, VL53LMZ_POWER_MODE_WAKEUP);
+                if (status != VL53LMZ_STATUS_OK) {
+                    uart_printf("ERROR at %s(%d) : vl53lmz_set_power_mode VL53LMZ_POWER_MODE_WAKEUP failed : %d\n",
+                            __func__, __LINE__, status);
+                    return status;
+                }
+                if (off == 1)
+                    off = 0;
+
+                // Configure VL53LMZ
+                status = vl53lmz_Configure();
+                if (status != VL53LMZ_STATUS_OK) {
+                    uart_printf("ERROR at %s(%d) : vl53lmz_Configure failed : %d\n", __func__, __LINE__, status);
+                    return status;
+                }
+
+                // Start ranging
+                status = vl53lmz_start_ranging(&LMZDev);
+                if (status != VL53LMZ_STATUS_OK) {
+                    uart_printf("ERROR at %s(%d) : vl53lmz_start_ranging failed : %d\n", __func__, __LINE__, status);
+                    ranging = 0;
+                }
+            }
+        }
 
         /*******************************/
         /*         RANGING Mode        */
@@ -812,5 +882,156 @@ void application_loop(void) {
             /* Possibly change sensor mode */
             SPD_ChangeSensorMode(&SPD_Data);
         }
+
+        /*******************************/
+        /*         STOP command        */
+        /*******************************/
+        /* Stop ranging upon request */
+        if (CommandData.disable) {
+            SPD_Init(1);
+            // Reset sensor settings in Tracking mode (after SPD init)
+            SEN_SetParamsForTracking();
+            sci_motion_map_stored = 0;
+            // Enable the output pipe
+            status = vl53lmz_spd_set_output_pipe(&LMZDev, VL53LMZ_NB_TARGET_PER_ZONE, Params.disablePipe, 0x01,
+                    Params.auto_stop);
+            if (ranging) {
+                // Stop ranging
+                status = vl53lmz_stop_ranging(&LMZDev);
+                if (status != VL53LMZ_STATUS_OK) {
+                    uart_printf("vl53lmz_stop_ranging failed : %d\n", status);
+                    return status;
+                }
+                // Go to VL53LMZ_POWER_MODE_SLEEP
+                status = vl53lmz_set_power_mode(&LMZDev, VL53LMZ_POWER_MODE_SLEEP);
+                if (status != VL53LMZ_STATUS_OK) {
+                    uart_printf("vl53lmz_set_power_mode LP_IDLE failed : %d\n", status);
+                    return status;
+                }
+            }
+            CommandData.disable = 0;
+            ranging = 0;
+        }
+
+        /*******************************/
+        /*          OFF command        */
+        /*******************************/
+        /* Set Sensor in ULP mode : off */
+        if ((CommandData.off) && (ranging == 0)) {
+            // Go to VL53LMZ_POWER_MODE_DEEP_SLEEP state
+            status = vl53lmz_set_power_mode(&LMZDev, VL53LMZ_POWER_MODE_DEEP_SLEEP);
+            if (status != VL53LMZ_STATUS_OK) {
+                uart_printf("vl53lmz_set_power_mode ULP_IDLE failed : %d\n", status);
+                return status;
+            }
+            // Reset calibration status
+            xtalk_calibrated = xtalk64_calibration_stored ? 64 : 0;
+            // Fini
+            CommandData.off = 0;
+            off = 1;
+        }
+
+        /*******************************/
+        /*         SET command         */
+        /*******************************/
+        /* Change SPD params upon request */
+        if (CommandData.set) {
+            SPD_Init(1); //Update the SPD parameters according the new params defined by the set command
+            // Reset sensor settings in Tracking mode (after SPD init)
+            SEN_SetParamsForTracking();
+            sci_motion_map_stored = 0;
+            CommandData.set = 0;
+        }
+
+#ifdef VL53LMZ_XTALK_CALIBRATION
+        /*******************************/
+        /*     GET_CALDATA command     */
+        /*******************************/
+        /* Get Calibration data */
+        if ((CommandData.get_caldata) && (ranging==0) && (!off)){
+            // Wake-up sensor from ULP or LP_IDLE to HP_IDLE
+            status = vl53lmz_set_power_mode(&LMZDev, VL53LMZ_POWER_MODE_WAKEUP);
+            if (status != VL53LMZ_STATUS_OK){
+                uart_printf("vl53lmz_set_power_mode HP_IDLE failed : %d\n",status);
+                return status;
+            }
+            // Read Xtalk calibration buffer from sensor (ULD format)
+            status = vl53lmz_get_caldata_xtalk(&LMZDev, cal_buffer);
+            if (status != VL53LMZ_STATUS_OK){
+                uart_printf("vl53lmz_get_caldata_xtalk failed : %d\n",status);
+                return status;
+            }
+            // Convert Xtalk calibration buffer into legacy Bare format
+//          status = vl53lmz_convert_xtalk_buffer_uld_to_bare(&LMZDev, cal_buffer);
+//          if (status != VL53LMZ_STATUS_OK){
+//              uart_printf("vl53lmz_convert_xtalk_buffer_uld_to_bare failed : %d\n",status);
+//              return status;
+//          }
+            // Print buffer
+            print_buffer(cal_buffer, VL53LMZ_XTALK_BUFFER_SIZE, PRINT_FORMAT_TXT);
+            if (CommandData.DebugLoggingLevel == 1){
+                print_decoded_cal_data(cal_buffer, VL53LMZ_XTALK_BUFFER_SIZE);
+            }
+            CommandData.get_caldata = 0;
+        }
+
+        /*******************************/
+        /*     SET_CALDATA command     */
+        /*******************************/
+        /* Set Calibration data */
+        if ((CommandData.set_caldata) && (ranging==0) && (!off)){
+            // Check buffer size
+            if (CommandData.buffer_size != VL53LMZ_XTALK_BUFFER_SIZE){
+                uart_printf("Calibration data size (%d) not correct : %d expected !\n",CommandData.buffer_size, VL53LMZ_XTALK_BUFFER_SIZE);
+                return -1;
+            }
+            // Convert xtalk calibration buffer into ULD format
+//          status = vl53lmz_convert_xtalk_buffer_bare_to_uld(&LMZDev, CommandData.buffer);
+//          if (status != VL53LMZ_STATUS_OK){
+//              uart_printf("vl53lmz_convert_xtalk_buffer_bare_to_uld failed : %d\n",status);
+//              return status;
+//          }
+            // Program xtalk calibration buffer (ULD format)
+            status = vl53lmz_set_caldata_xtalk(&LMZDev, CommandData.buffer);
+            if (status != VL53LMZ_STATUS_OK){
+                uart_printf("vl53lmz_set_caldata_xtalk failed : %d\n",status);
+                return status;
+            }
+            // Keep a copy (ULD format)
+            memcpy(xtalk_calibration_buffer, CommandData.buffer, VL53LMZ_XTALK_BUFFER_SIZE);
+            // Update status
+            xtalk64_calibration_stored = 1;
+            xtalk_calibrated = 64;
+            CommandData.set_caldata = 0;
+        }
+
+        /*******************************/
+        /*     CALIBRATE command     */
+        /*******************************/
+        /* Perform Calibration */
+        if ((CommandData.calibrate) && (ranging==0) && (!off)){
+            // Wake-up sensor from ULP or LP_IDLE to HP_IDLE
+            status = vl53lmz_set_power_mode(&LMZDev, VL53LMZ_POWER_MODE_WAKEUP);
+            if (status != VL53LMZ_STATUS_OK){
+                uart_printf("vl53lmz_set_power_mode HP_IDLE failed : %d\n",status);
+                return status;
+            }
+            status = perform_calibration(CommandData.calibrate);
+            if (status != VL53LMZ_STATUS_OK){
+                uart_printf("perform_calibration failed : %d\n",status);
+            }
+            CommandData.calibrate = 0;
+        }
+        #endif
+
+        /*******************************/
+        /*    GET_CALSTATUS command    */
+        /*******************************/
+        /* Get Calibration Status */
+        if ((CommandData.get_calstatus) && (ranging == 0)) {
+            uart_printf("refspad:%d,offset:%d,xtalk:%d\n", -1, -1, xtalk_calibrated);
+            CommandData.get_calstatus = 0;
+        }
     }
 }
+

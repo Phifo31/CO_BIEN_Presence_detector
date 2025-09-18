@@ -19,7 +19,7 @@
 
 
 void application_setup (void);
-void application_loop (void);
+int application_loop (void);
 
 
 #endif /* APPLICATION_H_ */
