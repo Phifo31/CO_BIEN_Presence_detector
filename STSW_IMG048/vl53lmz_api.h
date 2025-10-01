@@ -1,14 +1,14 @@
 /**
-  *
-  * Copyright (c) 2023 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ *
+ * Copyright (c) 2023 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 
 #ifndef VL53LMZ_API_H_
 #define VL53LMZ_API_H_
@@ -16,7 +16,6 @@
 #if defined (__ARMCC_VERSION) && (__ARMCC_VERSION < 6010050)
 #pragma anon_unions
 #endif
-
 
 #include "platform.h"
 
@@ -26,14 +25,12 @@
 
 #define VL53LMZ_API_REVISION			"VL53LMZ_2.0.10"
 
-
 /**
  * @brief Default I2C address of VL53LMZ sensor. Can be changed using function
  * vl53lmz_set_i2c_address() function is called.
  */
 
 #define VL53LMZ_DEFAULT_I2C_ADDRESS			((uint16_t)0x52)
-
 
 /**
  * @brief Definition of the module types as reported in the
@@ -45,7 +42,6 @@
 #define VL53LMZ_MODULE_TYPE_L8			((uint8_t) 2U)
 #define VL53LMZ_MODULE_TYPE_UNKNOWN		((uint8_t) 255U)
 
-
 /**
  * @brief Macro VL53LMZ_RESOLUTION_4X4 or VL53LMZ_RESOLUTION_8X8 allows
  * setting sensor in 4x4 mode or 8x8 mode, using function
@@ -54,7 +50,6 @@
 
 #define VL53LMZ_RESOLUTION_4X4			((uint8_t) 16U)
 #define VL53LMZ_RESOLUTION_8X8			((uint8_t) 64U)
-
 
 /**
  * @brief Macro VL53LMZ_TARGET_ORDER_STRONGEST or VL53LMZ_TARGET_ORDER_CLOSEST
@@ -151,7 +146,6 @@
 #define VL53LMZ_SPAD_COUNT_BH			((uint32_t)0x55D00404U)
 #define VL53LMZ_MOTION_DETECT_BH		((uint32_t)0xD85808C0U)
 
-
 #define VL53LMZ_METADATA_IDX			((uint16_t)0x54B4U)
 #define VL53LMZ_COMMONDATA_IDX			((uint16_t)0x54C0U)
 #define VL53LMZ_AMBIENT_RATE_IDX		((uint16_t)0x54D0U)
@@ -160,8 +154,6 @@
 #define VL53LMZ_RAD2PERP_SCALE_GRID_IDX ((uint16_t)0xA2A8U)
 
 #define VL53LMZ_MODULE_TYPE_IDX			((uint16_t)0xE0C5U)
-
-
 
 /**
  * @brief Inner Macro for API. Not for user, only for development.
@@ -193,7 +185,6 @@
 #define VL53LMZ_UI_CMD_STATUS			((uint16_t)0x2C00U)
 #define VL53LMZ_UI_CMD_START			((uint16_t)0x2C04U)
 #define VL53LMZ_UI_CMD_END				((uint16_t)0x2FFFU)
-
 
 /**
  * @brief Custom block header configuration. 
@@ -265,7 +256,6 @@
 /* maximum size of (CNH_DATA + MI_OP_DEV) */
 #define VL53LMZ_ADDITIONAL_RESULTS_DATA (6160U+268U)
 
-
 /**
  * @brief Macro VL53LMZ_MAX_RESULTS_SIZE indicates the maximum size used by
  * output through I2C. Value 40 corresponds to headers + meta-data + common-data
@@ -276,7 +266,6 @@
 	+ LMZ_AMB_SIZE + LMZ_SPAD_SIZE + LMZ_NTAR_SIZE + LMZ_SPS_SIZE \
 	+ LMZ_SIGR_SIZE + LMZ_DIST_SIZE + LMZ_RFLEST_SIZE + LMZ_STA_SIZE \
 	+ LMZ_MOT_SIZE + 20U + VL53LMZ_ADDITIONAL_RESULTS_DATA )
-
 
 /**
  * @brief Macro VL53LMZ_TEMPORARY_BUFFER_SIZE can be used to know the size of
@@ -290,38 +279,35 @@
 #define VL53LMZ_TEMPORARY_BUFFER_SIZE ((uint32_t) VL53LMZ_MAX_RESULTS_SIZE)
 #endif
 
-
 /**
  * @brief Structure VL53LMZ_Configuration contains the sensor configuration.
  * User MUST not manually change these field, except for the sensor address.
  */
 
-typedef struct
-{
-	/* Platform, filled by customer into the 'platform.h' file */
-	VL53LMZ_Platform	platform;
-	/* Results streamcount, value auto-incremented at each range */
-	uint8_t				streamcount;
-	/* Size of data read though I2C */
-	uint32_t			data_read_size;
-	/* Address of default configuration buffer */
-	uint8_t				*default_configuration;
-	/* Address of default Xtalk buffer */
-	uint8_t				*default_xtalk;
-	/* Offset buffer */
-	uint8_t				offset_data[VL53LMZ_OFFSET_BUFFER_SIZE];
-	/* Xtalk buffer */
-	uint8_t				xtalk_data[VL53LMZ_XTALK_BUFFER_SIZE];
-	/* Temporary buffer used for internal driver processing */
-	 uint8_t			temp_buffer[VL53LMZ_TEMPORARY_BUFFER_SIZE];
-	/* Auto-stop flag for stopping the sensor */
-	uint8_t				is_auto_stop_enabled;
+typedef struct {
+    /* Platform, filled by customer into the 'platform.h' file */
+    VL53LMZ_Platform platform;
+    /* Results streamcount, value auto-incremented at each range */
+    uint8_t streamcount;
+    /* Size of data read though I2C */
+    uint32_t data_read_size;
+    /* Address of default configuration buffer */
+    uint8_t *default_configuration;
+    /* Address of default Xtalk buffer */
+    uint8_t *default_xtalk;
+    /* Offset buffer */
+    uint8_t offset_data[VL53LMZ_OFFSET_BUFFER_SIZE];
+    /* Xtalk buffer */
+    uint8_t xtalk_data[VL53LMZ_XTALK_BUFFER_SIZE];
+    /* Temporary buffer used for internal driver processing */
+    uint8_t temp_buffer[VL53LMZ_TEMPORARY_BUFFER_SIZE];
+    /* Auto-stop flag for stopping the sensor */
+    uint8_t is_auto_stop_enabled;
     /* Device and revision information read back from sensor */
-	uint8_t device_id, revision_id;
+    uint8_t device_id, revision_id;
     /* Module type read back from sensor */
-	uint8_t module_type;
+    uint8_t module_type;
 } VL53LMZ_Configuration;
-
 
 /**
  * @brief Structure VL53LMZ_ResultsData contains the ranging results of
@@ -334,87 +320,76 @@ typedef struct
  * target_status).
  */
 
-typedef struct
-{
-	/* Internal sensor silicon temperature */
-	int8_t silicon_temp_degc;
+typedef struct {
+    /* Internal sensor silicon temperature */
+    int8_t silicon_temp_degc;
 
-	/* Ambient noise in kcps/spads */
+    /* Ambient noise in kcps/spads */
 #ifndef VL53LMZ_DISABLE_AMBIENT_PER_SPAD
-	uint32_t ambient_per_spad[VL53LMZ_RESOLUTION_8X8];
+    uint32_t ambient_per_spad[VL53LMZ_RESOLUTION_8X8];
 #endif
 
-	/* Number of valid target detected for 1 zone */
+    /* Number of valid target detected for 1 zone */
 #ifndef VL53LMZ_DISABLE_NB_TARGET_DETECTED
 	uint8_t nb_target_detected[VL53LMZ_RESOLUTION_8X8];
 #endif
 
-	/* Number of spads enabled for this ranging */
+    /* Number of spads enabled for this ranging */
 #ifndef VL53LMZ_DISABLE_NB_SPADS_ENABLED
-	uint32_t nb_spads_enabled[VL53LMZ_RESOLUTION_8X8];
+    uint32_t nb_spads_enabled[VL53LMZ_RESOLUTION_8X8];
 #endif
 
-	/* Signal returned to the sensor in kcps/spads */
+    /* Signal returned to the sensor in kcps/spads */
 #ifndef VL53LMZ_DISABLE_SIGNAL_PER_SPAD
-	uint32_t signal_per_spad[(VL53LMZ_RESOLUTION_8X8
-					*VL53LMZ_NB_TARGET_PER_ZONE)];
+    uint32_t signal_per_spad[(VL53LMZ_RESOLUTION_8X8 * VL53LMZ_NB_TARGET_PER_ZONE)];
 #endif
 
-	/* Sigma of the current distance in mm */
+    /* Sigma of the current distance in mm */
 #ifndef VL53LMZ_DISABLE_RANGE_SIGMA_MM
-	uint16_t range_sigma_mm[(VL53LMZ_RESOLUTION_8X8
-					*VL53LMZ_NB_TARGET_PER_ZONE)];
+    uint16_t range_sigma_mm[(VL53LMZ_RESOLUTION_8X8 * VL53LMZ_NB_TARGET_PER_ZONE)];
 #endif
 
-	/* Measured distance in mm */
+    /* Measured distance in mm */
 #ifndef VL53LMZ_DISABLE_DISTANCE_MM
-	int16_t distance_mm[(VL53LMZ_RESOLUTION_8X8
-					*VL53LMZ_NB_TARGET_PER_ZONE)];
+    int16_t distance_mm[(VL53LMZ_RESOLUTION_8X8 * VL53LMZ_NB_TARGET_PER_ZONE)];
 #endif
 
-	/* Estimated reflectance in percent */
+    /* Estimated reflectance in percent */
 #ifndef VL53LMZ_DISABLE_REFLECTANCE_PERCENT
 	uint8_t reflectance[(VL53LMZ_RESOLUTION_8X8
 					*VL53LMZ_NB_TARGET_PER_ZONE)];
 #endif
 
-	/* Status indicating the measurement validity (5 & 9 means ranging OK)*/
+    /* Status indicating the measurement validity (5 & 9 means ranging OK)*/
 #ifndef VL53LMZ_DISABLE_TARGET_STATUS
-	uint8_t target_status[(VL53LMZ_RESOLUTION_8X8
-					*VL53LMZ_NB_TARGET_PER_ZONE)];
+    uint8_t target_status[(VL53LMZ_RESOLUTION_8X8 * VL53LMZ_NB_TARGET_PER_ZONE)];
 #endif
 
-	/* Motion detector results */
+    /* Motion detector results */
 #ifndef VL53LMZ_DISABLE_MOTION_INDICATOR
-	struct
-	{
-		uint32_t global_indicator_1;
-		uint32_t global_indicator_2;
-		uint8_t	 status;
-		uint8_t	 nb_of_detected_aggregates;
-		uint8_t	 nb_of_aggregates;
-		uint8_t	 spare;
-		uint32_t motion[32];
-	} motion_indicator;
+    struct {
+        uint32_t global_indicator_1;
+        uint32_t global_indicator_2;
+        uint8_t status;
+        uint8_t nb_of_detected_aggregates;
+        uint8_t nb_of_aggregates;
+        uint8_t spare;
+        uint32_t motion[32];
+    } motion_indicator;
 #endif
 
 } VL53LMZ_ResultsData;
 
-
 union Block_header {
-	uint32_t bytes;
-	struct {
-		uint32_t type : 4;
-		uint32_t size : 12;
-		uint32_t idx : 16;
-	};
+    uint32_t bytes;
+    struct {
+        uint32_t type :4;
+        uint32_t size :12;
+        uint32_t idx :16;
+    };
 };
 
-
-
-uint8_t vl53lmz_is_alive(
-		VL53LMZ_Configuration	*p_dev,
-		uint8_t				*p_is_alive);
+uint8_t vl53lmz_is_alive(VL53LMZ_Configuration *p_dev, uint8_t *p_is_alive);
 
 /**
  * @brief Mandatory function used to initialize the sensor. This function must
@@ -423,8 +398,7 @@ uint8_t vl53lmz_is_alive(
  * @param (VL53LMZ_Configuration) *p_dev : VL53LMZ configuration structure.
  * @return (uint8_t) status : 0 if initialization is OK.
  */
-uint8_t vl53lmz_init(
-		VL53LMZ_Configuration	*p_dev);
+uint8_t vl53lmz_init(VL53LMZ_Configuration *p_dev);
 
 /**
  * @brief This function is used to change the I2C address of the sensor. If
@@ -434,9 +408,7 @@ uint8_t vl53lmz_init(
  * @param (uint16_t) i2c_address : New I2C address.
  * @return (uint8_t) status : 0 if new address is OK
  */
-uint8_t vl53lmz_set_i2c_address(
-		VL53LMZ_Configuration	*p_dev,
-		uint16_t			i2c_address);
+uint8_t vl53lmz_set_i2c_address(VL53LMZ_Configuration *p_dev, uint16_t i2c_address);
 
 /**
  * @brief This function is used to get the current sensor power mode.
@@ -448,9 +420,7 @@ uint8_t vl53lmz_set_i2c_address(
  * mode (VL53LMZ_POWER_MODE_DEEP_SLEEP).
  * @return (uint8_t) status : 0 if power mode is OK
  */
-uint8_t vl53lmz_get_power_mode(
-		VL53LMZ_Configuration	*p_dev,
-		uint8_t				*p_power_mode);
+uint8_t vl53lmz_get_power_mode(VL53LMZ_Configuration *p_dev, uint8_t *p_power_mode);
 
 /**
  * @brief This function is used to set the sensor in Low Power mode, for
@@ -464,9 +434,7 @@ uint8_t vl53lmz_get_power_mode(
  * @return (uint8_t) status : 0 if power mode is OK, or 127 if power mode
  * requested by user is not valid.
  */
-uint8_t vl53lmz_set_power_mode(
-		VL53LMZ_Configuration	*p_dev,
-		uint8_t				power_mode);
+uint8_t vl53lmz_set_power_mode(VL53LMZ_Configuration *p_dev, uint8_t power_mode);
 
 /**
  * @brief This function starts a ranging session. When the sensor streams, host
@@ -474,8 +442,7 @@ uint8_t vl53lmz_set_power_mode(
  * @param (VL53LMZ_Configuration) *p_dev : VL53LMZ configuration structure.
  * @return (uint8_t) status : 0 if start is OK.
  */
-uint8_t vl53lmz_start_ranging(
-		VL53LMZ_Configuration	*p_dev);
+uint8_t vl53lmz_start_ranging(VL53LMZ_Configuration *p_dev);
 
 /**
  * @brief This function stops the ranging session. It must be used when the
@@ -483,8 +450,7 @@ uint8_t vl53lmz_start_ranging(
  * @param (VL53LMZ_Configuration) *p_dev : VL53LMZ configuration structure.
  * @return (uint8_t) status : 0 if stop is OK
  */
-uint8_t vl53lmz_stop_ranging(
-		VL53LMZ_Configuration	*p_dev);
+uint8_t vl53lmz_stop_ranging(VL53LMZ_Configuration *p_dev);
 
 /**
  * @brief This function checks if a new data is ready by polling I2C. If a new
@@ -494,9 +460,7 @@ uint8_t vl53lmz_stop_ranging(
  * is not ready, or 1 if a new data is ready.
  * @return (uint8_t) status : 0 if I2C reading is OK
  */
-uint8_t vl53lmz_check_data_ready(
-		VL53LMZ_Configuration	*p_dev,
-		uint8_t				*p_isReady);
+uint8_t vl53lmz_check_data_ready(VL53LMZ_Configuration *p_dev, uint8_t *p_isReady);
 
 /**
  * @brief This function gets the ranging data, using the selected output and the
@@ -505,9 +469,7 @@ uint8_t vl53lmz_check_data_ready(
  * @param (VL53LMZ_ResultsData) *p_results : VL53L5 results structure.
  * @return (uint8_t) status : 0 data are successfully get.
  */
-uint8_t vl53lmz_get_ranging_data(
-		VL53LMZ_Configuration	*p_dev,
-		VL53LMZ_ResultsData		*p_results);
+uint8_t vl53lmz_get_ranging_data(VL53LMZ_Configuration *p_dev, VL53LMZ_ResultsData *p_results);
 
 /**
  * @brief This function gets the current resolution (4x4 or 8x8).
@@ -516,9 +478,7 @@ uint8_t vl53lmz_get_ranging_data(
  * for 4x4 mode, and 64 for 8x8 mode.
  * @return (uint8_t) status : 0 if resolution is OK.
  */
-uint8_t vl53lmz_get_resolution(
-		VL53LMZ_Configuration	*p_dev,
-		uint8_t				*p_resolution);
+uint8_t vl53lmz_get_resolution(VL53LMZ_Configuration *p_dev, uint8_t *p_resolution);
 
 /**
  * @brief This function sets a new resolution (4x4 or 8x8).
@@ -527,9 +487,7 @@ uint8_t vl53lmz_get_resolution(
  * VL53LMZ_RESOLUTION_8X8 to set the resolution.
  * @return (uint8_t) status : 0 if set resolution is OK.
  */
-uint8_t vl53lmz_set_resolution(
-		VL53LMZ_Configuration	*p_dev,
-		uint8_t							resolution);
+uint8_t vl53lmz_set_resolution(VL53LMZ_Configuration *p_dev, uint8_t resolution);
 
 /**
  * @brief This function gets the current ranging frequency in Hz. Ranging
@@ -538,9 +496,7 @@ uint8_t vl53lmz_set_resolution(
  * @param (uint8_t) *p_frequency_hz: Contains the ranging frequency in Hz.
  * @return (uint8_t) status : 0 if ranging frequency is OK.
  */
-uint8_t vl53lmz_get_ranging_frequency_hz(
-		VL53LMZ_Configuration	*p_dev,
-		uint8_t				*p_frequency_hz);
+uint8_t vl53lmz_get_ranging_frequency_hz(VL53LMZ_Configuration *p_dev, uint8_t *p_frequency_hz);
 
 /**
  * @brief This function sets a new ranging frequency in Hz. Ranging frequency
@@ -553,9 +509,7 @@ uint8_t vl53lmz_get_ranging_frequency_hz(
  * @return (uint8_t) status : 0 if ranging frequency is OK, or 127 if the value
  * is not correct.
  */
-uint8_t vl53lmz_set_ranging_frequency_hz(
-		VL53LMZ_Configuration	*p_dev,
-		uint8_t				frequency_hz);
+uint8_t vl53lmz_set_ranging_frequency_hz(VL53LMZ_Configuration *p_dev, uint8_t frequency_hz);
 
 /**
  * @brief This function gets the current integration time in ms.
@@ -563,9 +517,7 @@ uint8_t vl53lmz_set_ranging_frequency_hz(
  * @param (uint32_t) *p_time_ms: Contains integration time in ms.
  * @return (uint8_t) status : 0 if integration time is OK.
  */
-uint8_t vl53lmz_get_integration_time_ms(
-		VL53LMZ_Configuration	*p_dev,
-		uint32_t			*p_time_ms);
+uint8_t vl53lmz_get_integration_time_ms(VL53LMZ_Configuration *p_dev, uint32_t *p_time_ms);
 
 /**
  * @brief This function sets a new integration time in ms. Integration time must
@@ -577,9 +529,7 @@ uint8_t vl53lmz_get_integration_time_ms(
  * 1000ms.
  * @return (uint8_t) status : 0 if set integration time is OK.
  */
-uint8_t vl53lmz_set_integration_time_ms(
-		VL53LMZ_Configuration	*p_dev,
-		uint32_t			integration_time_ms);
+uint8_t vl53lmz_set_integration_time_ms(VL53LMZ_Configuration *p_dev, uint32_t integration_time_ms);
 
 /**
  * @brief This function gets the current sharpener in percent. Sharpener can be
@@ -588,9 +538,7 @@ uint8_t vl53lmz_set_integration_time_ms(
  * @param (uint32_t) *p_sharpener_percent: Contains the sharpener in percent.
  * @return (uint8_t) status : 0 if get sharpener is OK.
  */
-uint8_t vl53lmz_get_sharpener_percent(
-		VL53LMZ_Configuration	*p_dev,
-		uint8_t				*p_sharpener_percent);
+uint8_t vl53lmz_get_sharpener_percent(VL53LMZ_Configuration *p_dev, uint8_t *p_sharpener_percent);
 
 /**
  * @brief This function sets a new sharpener value in percent. Sharpener can be
@@ -600,9 +548,7 @@ uint8_t vl53lmz_get_sharpener_percent(
  * @param (uint32_t) sharpener_percent : Value between 0 (disabled) and 99%.
  * @return (uint8_t) status : 0 if set sharpener is OK.
  */
-uint8_t vl53lmz_set_sharpener_percent(
-		VL53LMZ_Configuration	*p_dev,
-		uint8_t				sharpener_percent);
+uint8_t vl53lmz_set_sharpener_percent(VL53LMZ_Configuration *p_dev, uint8_t sharpener_percent);
 
 /**
  * @brief This function gets the current target order (closest or strongest).
@@ -610,9 +556,7 @@ uint8_t vl53lmz_set_sharpener_percent(
  * @param (uint8_t) *p_target_order: Contains the target order.
  * @return (uint8_t) status : 0 if get target order is OK.
  */
-uint8_t vl53lmz_get_target_order(
-		VL53LMZ_Configuration	*p_dev,
-		uint8_t				*p_target_order);
+uint8_t vl53lmz_get_target_order(VL53LMZ_Configuration *p_dev, uint8_t *p_target_order);
 
 /**
  * @brief This function sets a new target order. Please use macros
@@ -624,9 +568,7 @@ uint8_t vl53lmz_get_target_order(
  * @return (uint8_t) status : 0 if set target order is OK, or 127 if target
  * order is unknown.
  */
-uint8_t vl53lmz_set_target_order(
-		VL53LMZ_Configuration	*p_dev,
-		uint8_t				target_order);
+uint8_t vl53lmz_set_target_order(VL53LMZ_Configuration *p_dev, uint8_t target_order);
 
 /**
  * @brief This function is used to get the ranging mode. Two modes are
@@ -636,9 +578,7 @@ uint8_t vl53lmz_set_target_order(
  * @param (uint8_t) *p_ranging_mode : current ranging mode
  * @return (uint8_t) status : 0 if get ranging mode is OK.
  */
-uint8_t vl53lmz_get_ranging_mode(
-		VL53LMZ_Configuration	*p_dev,
-		uint8_t				*p_ranging_mode);
+uint8_t vl53lmz_get_ranging_mode(VL53LMZ_Configuration *p_dev, uint8_t *p_ranging_mode);
 
 /**
  * @brief This function is used to set the ranging mode. Two modes are
@@ -649,9 +589,7 @@ uint8_t vl53lmz_get_ranging_mode(
  * VL53LMZ_RANGING_MODE_CONTINUOUS.
  * @return (uint8_t) status : 0 if set ranging mode is OK.
  */
-uint8_t vl53lmz_set_ranging_mode(
-		VL53LMZ_Configuration	*p_dev,
-		uint8_t				ranging_mode);
+uint8_t vl53lmz_set_ranging_mode(VL53LMZ_Configuration *p_dev, uint8_t ranging_mode);
 
 /**
  * @brief This function is used to disable the VCSEL charge pump
@@ -659,8 +597,7 @@ uint8_t vl53lmz_set_ranging_mode(
  * To be used only if AVDD = 3.3V
  * @param (VL53LMZ_Configuration) *p_dev : VL53LMZ configuration structure.
  */
-uint8_t vl53lmz_enable_internal_cp(
-		VL53LMZ_Configuration	*p_dev);
+uint8_t vl53lmz_enable_internal_cp(VL53LMZ_Configuration *p_dev);
 
 /**
  * @brief This function is used to disable the VCSEL charge pump
@@ -668,8 +605,7 @@ uint8_t vl53lmz_enable_internal_cp(
  * To be used only if AVDD = 3.3V
  * @param (VL53LMZ_Configuration) *p_dev : VL53LMZ configuration structure.
  */
-uint8_t vl53lmz_disable_internal_cp(
-		  VL53LMZ_Configuration		 *p_dev);
+uint8_t vl53lmz_disable_internal_cp(VL53LMZ_Configuration *p_dev);
 
 /**
  * @brief This function is used to check if the synchronization pin is enabled
@@ -681,10 +617,7 @@ uint8_t vl53lmz_disable_internal_cp(
  * overridden to 0 if the pin is disabled, or 1 if the pin is enabled.
  * @return (uint8_t) status : 0 if get sync pin OK.
  */
-uint8_t vl53lmz_get_external_sync_pin_enable(
-		VL53LMZ_Configuration	*p_dev,
-		uint8_t				*p_is_sync_pin_enabled);
-
+uint8_t vl53lmz_get_external_sync_pin_enable(VL53LMZ_Configuration *p_dev, uint8_t *p_is_sync_pin_enabled);
 
 /**
  * @brief This function is used to enable or disable the synchronization pin. When
@@ -696,9 +629,7 @@ uint8_t vl53lmz_get_external_sync_pin_enable(
  * pin, or 0 to disable it.
  * @return (uint8_t) status : 0 if set sync pin OK.
  */
-uint8_t vl53lmz_set_external_sync_pin_enable(
-		VL53LMZ_Configuration	*p_dev,
-		uint8_t				enable_sync_pin);
+uint8_t vl53lmz_set_external_sync_pin_enable(VL53LMZ_Configuration *p_dev, uint8_t enable_sync_pin);
 
 /**
  * @brief This function gets the current Glare Filter config.
@@ -707,10 +638,7 @@ uint8_t vl53lmz_set_external_sync_pin_enable(
  * @param (int16_t) *p_max_range: Pointer to variable to place max_range value.
  * @return (uint8_t) status : 0 if settings where applied successfully.
  */
-uint8_t vl53lmz_get_glare_filter_cfg(
-		VL53LMZ_Configuration	*p_dev,
-		uint8_t					*p_threshold_pc_x10,
-		int16_t					*p_max_range );
+uint8_t vl53lmz_get_glare_filter_cfg(VL53LMZ_Configuration *p_dev, uint8_t *p_threshold_pc_x10, int16_t *p_max_range);
 
 /**
  * @brief This function sets the current Glare Filter config.
@@ -719,11 +647,7 @@ uint8_t vl53lmz_get_glare_filter_cfg(
  * @param (int16_t) max_range: Maximum range for GlareFilter to operate. Valid range of values is 10mm to 1000mm.
  * @return (uint8_t) status : 0 if settings where applied successfully.
  */
-uint8_t vl53lmz_set_glare_filter_cfg(
-		VL53LMZ_Configuration	*p_dev,
-		uint8_t					threshold_pc_x10,
-		int16_t					max_range );
-
+uint8_t vl53lmz_set_glare_filter_cfg(VL53LMZ_Configuration *p_dev, uint8_t threshold_pc_x10, int16_t max_range);
 
 /**
  * @brief This function can be used to read 'extra data' from DCI. Using a known
@@ -737,11 +661,7 @@ uint8_t vl53lmz_set_glare_filter_cfg(
  * (using sizeof() function).
  * @return (uint8_t) status : 0 if OK
  */
-uint8_t vl53lmz_dci_read_data(
-		VL53LMZ_Configuration	*p_dev,
-		uint8_t				*data,
-		uint32_t			index,
-		uint16_t			data_size);
+uint8_t vl53lmz_dci_read_data(VL53LMZ_Configuration *p_dev, uint8_t *data, uint32_t index, uint16_t data_size);
 
 /**
  * @brief This function can be used to write 'extra data' to DCI. The data can
@@ -755,11 +675,7 @@ uint8_t vl53lmz_dci_read_data(
  * (using sizeof() function).
  * @return (uint8_t) status : 0 if OK
  */
-uint8_t vl53lmz_dci_write_data(
-		VL53LMZ_Configuration	*p_dev,
-		uint8_t				*data,
-		uint32_t			index,
-		uint16_t			data_size);
+uint8_t vl53lmz_dci_write_data(VL53LMZ_Configuration *p_dev, uint8_t *data, uint32_t index, uint16_t data_size);
 
 /**
  * @brief This function can be used to replace 'extra data' in DCI. The data can
@@ -776,15 +692,8 @@ uint8_t vl53lmz_dci_write_data(
  * @param (uint16_t) new_data_pos : New data position into the buffer.
  * @return (uint8_t) status : 0 if OK
  */
-uint8_t vl53lmz_dci_replace_data(
-		VL53LMZ_Configuration	*p_dev,
-		uint8_t				*data,
-		uint32_t			index,
-		uint16_t			data_size,
-		uint8_t				*new_data,
-		uint16_t			new_data_size,
-		uint16_t			new_data_pos);
-
+uint8_t vl53lmz_dci_replace_data(VL53LMZ_Configuration *p_dev, uint8_t *data, uint32_t index, uint16_t data_size,
+        uint8_t *new_data, uint16_t new_data_size, uint16_t new_data_pos);
 
 /**
  * @brief This function creates the output configuration that will be sent to
@@ -792,9 +701,7 @@ uint8_t vl53lmz_dci_replace_data(
  * @param (VL53LMZ_Configuration) *p_dev : VL53LMZ configuration structure.
  * @return (uint8_t) status : 0 if OK
  */
-uint8_t vl53lmz_create_output_config(
-		VL53LMZ_Configuration	*p_dev );
-
+uint8_t vl53lmz_create_output_config(VL53LMZ_Configuration *p_dev);
 
 /**
  * @brief This function sends the output configuration previously created by
@@ -803,9 +710,7 @@ uint8_t vl53lmz_create_output_config(
  * @param (VL53LMZ_Configuration) *p_dev : VL53LMZ configuration structure.
  * @return (uint8_t) status : 0 if OK
  */
-uint8_t vl53lmz_send_output_config_and_start(
-		VL53LMZ_Configuration	*p_dev );
-
+uint8_t vl53lmz_send_output_config_and_start(VL53LMZ_Configuration *p_dev);
 
 /**
  * @brief This function adds the specified block header to the end of the
@@ -815,10 +720,7 @@ uint8_t vl53lmz_send_output_config_and_start(
  * @param (uint32_t) block_header : Block Header to add to output_config list.
  *	* @return (uint8_t) status : 0 if OK
  */
-uint8_t vl53lmz_add_output_block(
-		VL53LMZ_Configuration	*p_dev,
-		uint32_t				block_header );
-
+uint8_t vl53lmz_add_output_block(VL53LMZ_Configuration *p_dev, uint32_t block_header);
 
 /**
  * @brief This function disables the specified block output in the
@@ -828,10 +730,7 @@ uint8_t vl53lmz_add_output_block(
  * @param (uint32_t) block_header : Block Header to disable output_config list.
  *	* @return (uint8_t) status : 0 if OK
  */
-uint8_t vl53lmz_disable_output_block(
-		VL53LMZ_Configuration	*p_dev,
-		uint32_t				block_header );
-
+uint8_t vl53lmz_disable_output_block(VL53LMZ_Configuration *p_dev, uint32_t block_header);
 
 /**
  * @brief This function extracts the specified data block from a Results
@@ -843,11 +742,7 @@ uint8_t vl53lmz_disable_output_block(
  * (using sizeof() function).
  * @return (uint8_t) status : 0 if OK
  */
-uint8_t vl53lmz_results_extract_block(
-		VL53LMZ_Configuration		*p_dev,
-		uint32_t					blk_index,
-		uint8_t						*p_data,
-		uint16_t					data_size );
-
+uint8_t vl53lmz_results_extract_block(VL53LMZ_Configuration *p_dev, uint32_t blk_index, uint8_t *p_data,
+        uint16_t data_size);
 
 #endif //VL53LMZ_API_H_
