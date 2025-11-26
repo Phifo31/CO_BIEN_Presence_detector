@@ -55,5 +55,7 @@ dkms.conf
 *.dwo
 /Debug/
 Doxygen/
-
+# rapports générés par CubeMx
+CO_BIEN_Presence_detector.pdf
+CO_BIEN_Presence_detector.txt
 

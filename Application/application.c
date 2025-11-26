@@ -95,6 +95,46 @@ int SPD_ChangeSensorMode(SPD_Data_t *pSPDData);
 
 volatile int IntCount;
 
+#if ENABLE_USER_LOG
+/**
+ * Affichage de tick système en secondes et milli-secondes
+ */
+uint16_t seconds;
+uint16_t reste;
+uint16_t msec2sec(uint32_t n, uint16_t *reste) {
+
+    // Récupéré là mais je n'y comprend rien
+    // https://stackoverflow.com/questions/1294885/convert-milliseconds-to-seconds-in-c
+    //  uint32_t q, r, t;
+    //n = n + 500; pourquoi ?
+    //t = (n >> 7) + (n >> 8) + (n >> 12);
+    //q = (n >> 1) + t + (n >> 15) + (t >> 11) + (t >> 14);
+    //q = q >> 9;
+    //r = n - q*1000;
+    //return q + ((r + 24) >> 10);
+
+    // ==> donc voici ma version :
+    uint32_t q = n / 1000;
+    *reste = n - 1000 * q;
+    return (uint16_t) q;
+}
+
+
+// Redirection du printf sur UART2 (pour une nucleo 64)
+int _write(int file, char *ptr, int len) {
+    HAL_UART_Transmit(&huart2, (uint8_t*) ptr, len, 100);
+    return (len);
+}
+
+/*
+ int __io_putchar(int ch) {
+    HAL_UART_Transmit(&huart2, (uint8_t*) &ch, 1, 100);
+    //ITM_SendChar(ch);
+    return (ch);
+} */
+
+#endif
+
 /* VL53LMZ Interrupt handler -----------------------------------------------*/
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
     if (GPIO_Pin == INT_C_Pin) {
