@@ -19,6 +19,12 @@
 
 #include "platform.h"
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
 /**
  * @brief Current driver version.
  */
@@ -744,5 +750,9 @@ uint8_t vl53lmz_disable_output_block(VL53LMZ_Configuration *p_dev, uint32_t bloc
  */
 uint8_t vl53lmz_results_extract_block(VL53LMZ_Configuration *p_dev, uint32_t blk_index, uint8_t *p_data,
         uint16_t data_size);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif //VL53LMZ_API_H_

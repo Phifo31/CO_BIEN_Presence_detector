@@ -64,18 +64,22 @@ uint8_t RdMulti(VL53LMZ_Platform *p_platform, uint16_t RegisterAdress, uint8_t *
 }
 
 void Reset_Sensor(VL53LMZ_Platform *p_platform) {
+
+    /* Set 0 to PWR_EN */
+    HAL_GPIO_WritePin(PWR_EN_C_GPIO_Port, PWR_EN_C_Pin, GPIO_PIN_RESET);
     /* Set 0 to pin LPN */
     HAL_GPIO_WritePin(LPn_C_GPIO_Port, LPn_C_Pin, GPIO_PIN_RESET);
     /* Set 0 to PWR_EN */
     HAL_GPIO_WritePin(PWR_EN_C_GPIO_Port, PWR_EN_C_Pin, GPIO_PIN_RESET);
     WaitMs(p_platform, 100);
 
-    /* Set 1 to pin LPN */
-    HAL_GPIO_WritePin(LPn_C_GPIO_Port, LPn_C_Pin, GPIO_PIN_SET);
     /* Set 1 to PWR_EN */
     HAL_GPIO_WritePin(PWR_EN_C_GPIO_Port, PWR_EN_C_Pin, GPIO_PIN_SET);
+    /* Set 1 to pin Reset */
+    HAL_GPIO_WritePin(TOF_RST_GPIO_Port, TOF_RST_Pin, GPIO_PIN_RESET);
+    /* Set 1 to pin LPN */
+    HAL_GPIO_WritePin(LPn_C_GPIO_Port, LPn_C_Pin, GPIO_PIN_SET);
     WaitMs(p_platform, 100);
-
 }
 
 void SwapBuffer(uint8_t *buffer, uint16_t size) {

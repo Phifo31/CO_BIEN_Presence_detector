@@ -16,6 +16,10 @@
 #include "vl53lmz_api.h"
 
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * @brief Structure VL53LMZ_FWVersion is used to store the Firmware version of
  * VL53L5.
@@ -135,6 +139,8 @@ uint8_t vl53lmz_get_fw_version(
 		VL53LMZ_Configuration		 *p_dev,
 		VL53LMZ_FWVersion			 *p_fw_version);
 
-
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* VL53LMZ_PLUGIN_INFOS_H_ */

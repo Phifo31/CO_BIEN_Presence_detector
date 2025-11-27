@@ -15,6 +15,11 @@
 
 #include "vl53lmz_api.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
 /**
  * @brief Macro VL53LMZ_NB_THRESHOLDS indicates the number of checkers. This
  * value cannot be changed.
@@ -183,5 +188,10 @@ uint8_t vl53lmz_get_detection_thresholds_auto_stop(
 uint8_t vl53lmz_set_detection_thresholds_auto_stop(
 		VL53LMZ_Configuration		*p_dev,
 		uint8_t				auto_stop);
+
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* VL53LMZ_PLUGIN_DETECTION_THRESHOLDS_H_ */

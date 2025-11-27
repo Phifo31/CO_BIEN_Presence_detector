@@ -22,6 +22,10 @@
 #include "spd.h"
 //#include "stm32xxx_hal.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* VL53L5 buffer print defines ------------------------------------------------------*/
 #define PRINT_FORMAT_ARRAY 0
 #define PRINT_FORMAT_TXT 1
@@ -51,5 +55,8 @@ static void _vl53lmz_swap_data(uint8_t *buffer, uint16_t size);
 
 
 
+#ifdef __cplusplus
+}
+#endif
 
 #endif	// _APP_COMM_H_

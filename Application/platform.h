@@ -18,6 +18,10 @@
 #include <stdint.h>
 #include <string.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Code Profiling
 //#define SPD_PROFILE
 #if defined(SPD_PROFILE)
@@ -215,5 +219,9 @@ void SwapBuffer(
 uint8_t WaitMs(
 		VL53LMZ_Platform *p_platform,
 		uint32_t TimeMs);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif	// _PLATFORM_H_

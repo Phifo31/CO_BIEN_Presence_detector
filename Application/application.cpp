@@ -29,6 +29,9 @@
 #include "sensor.h"
 #include "comms_encode.h" // Encoded channel for SPD EVK
 
+#include "../../CO_BIEN_Konectik/Common/can_ids.h"
+#include "can_bus.h"
+
 #include "application.h"
 
 volatile char Uart_RXBuffer[UART_BUFFER_SIZE];
@@ -93,7 +96,11 @@ int SEN_SetParamsForAutonomous();
 int SPD_Init(int reset);
 int SPD_ChangeSensorMode(SPD_Data_t *pSPDData);
 
-volatile int IntCount;
+//volatile int IntCount;
+
+CAN_BUS can_bus(0x474);
+volatile bool auto_led_debug = true;
+
 
 #if ENABLE_USER_LOG
 /**
@@ -792,6 +799,55 @@ int SPD_ChangeSensorMode(SPD_Data_t *pSPDData) {
     return status;
 }
 
+
+/**
+ * Gestion de la led de vie (tant qu'elle n'est pas utilisée par le BUS CAN
+ *
+ */
+uint32_t change_state_user_led(void) {
+
+    static bool led_state = false;
+    uint32_t time = 0;
+
+    if (led_state) {
+        led_state = false;
+        if (auto_led_debug) {
+            HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+        }
+        time = USER_LED_HIGH_TIME;
+    } else {
+        led_state = true;
+        if (auto_led_debug) {
+            HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+        }
+        time = USER_LED_LOW_TIME;
+    }
+    return time;
+}
+
+/**
+ *
+ */
+uint16_t can_bus_callback_debug_led(uint16_t sender, uint8_t data[6]) {
+
+    switch (data[0]) {
+    case 0:
+        HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+        auto_led_debug = false;
+        break;
+
+    case 1:
+        HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+        auto_led_debug = false;
+        break;
+
+    case 2:
+    default:
+        auto_led_debug = true;
+    }
+    return 0;
+}
+
 /**
  *
  */
@@ -838,6 +894,11 @@ void application_setup(void) {
 
     /* Init time data */
     time_data.curr_tstp = GET_TIME_STAMP();
+
+    // Initialisation du bus CAN
+    can_bus.begin();
+    can_bus.register_callback_function(ARBITRATION_ID_LED_CONFIG, can_bus_callback_debug_led);
+
 }
 
 /**
@@ -847,6 +908,9 @@ int application_loop(void) {
 
     int status = 0;
     int off = 0;
+
+    uint32_t time_for_can_bus_automatic_message = 0;
+    uint32_t time_for_change_led_state = 0;
 
     while (1) {
 
@@ -1072,6 +1136,25 @@ int application_loop(void) {
             uart_printf("refspad:%d,offset:%d,xtalk:%d\n", -1, -1, xtalk_calibrated);
             CommandData.get_calstatus = 0;
         }
+
+
+        uint32_t current_time = HAL_GetTick();
+        // Ecriture message CAN de vie (pour vérifier que le can fonctionne)
+        if (current_time >= time_for_can_bus_automatic_message) {
+            uint8_t toSend[8] = { 0xC0, 0x1D, 0xC0, 0xFF, 0xEE, 0xBA, 0xDB, 0xAD };
+            can_bus.send(toSend, 8);
+            time_for_can_bus_automatic_message += PERIODE_CAN_BUS_AUTOMATIC_MESSAGE;
+        }
+
+        // Modification état led debug (pour vérifier que l'application fonctionne)
+        if (current_time >= time_for_change_led_state) {
+            time_for_change_led_state += change_state_user_led();
+        }
     }
 }
+
+
+
+
+// end of file
 
