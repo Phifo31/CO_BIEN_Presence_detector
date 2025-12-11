@@ -24,7 +24,8 @@ extern "C" {
 #define VL53LMZ_SCI_PADDING_BYTES                   8
 #define VL53LMZ_SCI_PARTIALS_BYTES                  8
 #define VL53LMZ_SCI_MAX_BUFFER_SIZE                 6152
-
+#define VL53LMZ_SCI_MAX_BUFFER_SIZE                 6152
+#define VL53LMZ_XTALK_CALIBRATION
 
 
 void application_setup (void);

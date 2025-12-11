@@ -14,10 +14,13 @@
 #define GET_TIME_STAMP()  (int32_t)HAL_GetTick()
 #define UART_BUFFER_SIZE    2048
 
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+
 #include "sensor_command.h"
 #include "app_comm.h"
 #include "platform.h"
-
 #include "vl53lmz_api.h"
 #include "vl53lmz_plugin_infos.h"
 #include "vl53lmz_plugin_detection_thresholds.h"
@@ -59,6 +62,10 @@ uint8_t                 xtalk_calibration_buffer[VL53LMZ_XTALK_BUFFER_SIZE];
 #endif
 VL53LMZ_Motion_Configuration sci_config;
 
+uint8_t isAlive, isReady;
+uint32_t maxMotion, motionPower;
+int16_t dist, minDist, prevMinDist;
+
 /* Application (main.c) variables ---------------------------------------------------*/
 extern struct Params_t Params;
 APP_time_data time_data;
@@ -73,9 +80,7 @@ int print_decoded_cal_data(uint8_t *buffer, uint16_t size);
 /* VL53LMZ related function prototypes -----------------------------------------------*/
 int get_ranging_data(void);
 int init_vl53lmz_sensor();
-int perform_calibration(uint32_t calibration_type);
 int sci_set_config(struct Params_t *p_Params);
-int vl53lmz_sci_calculate_required_memory(VL53LMZ_Motion_Configuration *p_sci_config, uint32_t *p_required_memory);
 int vl53lmz_Configure(void);
 uint8_t vl53lmz_spd_set_output_pipe(VL53LMZ_Configuration *p_dev, uint8_t nb_target_per_zone,
         uint8_t disable_pipe_control, uint8_t enable_sharpener_post_filter, uint8_t auto_stop);
@@ -88,19 +93,11 @@ int SPDLoggingLevel = 1; //used by the SPD library
 uint32_t sci_motion_map[SENSOR__SCI_MAX_NB_OF_AGG]; // This buffer is needed to store the SCI motion map on the wake-up interrupt
 uint8_t sci_motion_map_stored = 0; // This flag is used to know when the SCI map is stored
 
-/* SPD related function prototypes --------------------------------------------------*/
-int SEN_update_info();
-int SEN_CopyMeasurementData(SEN_Measurement_Data_t *dest, VL53LMZ_ResultsData *src_ranging, uint64_t timestamp_ms);
-int SEN_SetParamsForTracking();
-int SEN_SetParamsForAutonomous();
-int SPD_Init(int reset);
-int SPD_ChangeSensorMode(SPD_Data_t *pSPDData);
-
-//volatile int IntCount;
-
 CAN_BUS can_bus(0x474);
 volatile bool auto_led_debug = true;
-
+uint32_t MOTION_THRESHOLD = 3000000; // sans unit
+uint32_t DIST_THRESHOLD = 400; // en mm
+uint32_t PERIODE_FILTRAGE = 10000; // en ms
 
 #if ENABLE_USER_LOG
 /**
@@ -109,7 +106,6 @@ volatile bool auto_led_debug = true;
 uint16_t seconds;
 uint16_t reste;
 uint16_t msec2sec(uint32_t n, uint16_t *reste) {
-
     // Récupéré là mais je n'y comprend rien
     // https://stackoverflow.com/questions/1294885/convert-milliseconds-to-seconds-in-c
     //  uint32_t q, r, t;
@@ -170,6 +166,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 #   define _CriticalExit()
 #   define _CriticalEnter()
 #endif
+
+// UART functions
 
 void Uart_DoCommand(){
 
@@ -234,76 +232,10 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
         HAL_UART_Receive_IT(huart, (uint8_t *) &Uart_RXBuffer[Uart_RxRcvIndex], 1);
 }
 
-
-/**
- * Init SPD with input parameters and optionally reset state machine (needed the first time)
+/*
+ * Sensor management functions
  */
-int SPD_Init(int reset) {
-    int status_spd = 0;
 
-    SEN_update_info();
-
-    // SPD PARAMS
-    SPD_Data.InvalidDistance = Params.spdInvalidDistance_mm;
-    SPD_Data.ApproachDistance = Params.spdApproachDistance_mm;
-    SPD_Data.WakeUpDistance = Params.spdWakeUpDistance_mm;
-    SPD_Data.TimeToAutonomous = Params.spdTimeToAutonomous_ms;
-    SPD_Data.ObstructedFoVDistThreshold = Params.spdObstructedFoVDistThreshold;
-    SPD_Data.StaticCloseObjectMaxDistance = Params.spdStaticCloseObjectMaxDistance;
-    SPD_Data.LockTimeAfterTrkLost = Params.spdLockTimeAfterTrkLost_ms;
-    SPD_Data.NoMotionTimeOut = Params.spdNoMotionTimeOut_ms;
-    SPD_Data.LockTimeObstructedFoV = Params.spdLockTimeObstructedFoV_ms;
-    SPD_Data.LockTimeStaticCloseObject = Params.spdLockTimeStaticCloseObject_ms;
-    SPD_Data.LockTimeNoTarget = Params.spdLockTimeNoTarget_ms;
-    SPD_Data.MinimumLockTime = Params.spdMinimumLockTime_ms;
-    SPD_Data.WakeOnStopMinSpeed = Params.spdWakeOnStopMinSpeed_kmh;
-    SPD_Data.TRK_Data.min_x_speed_departure = Params.spdMinXSpeedDeparture;
-    // ITA params
-    SPD_Data.USR_Data.ita_max_left_distance = Params.itaMaxLeftDistance_mm;
-    SPD_Data.USR_Data.ita_max_right_distance = Params.itaMaxRightDistance_mm;
-    SPD_Data.USR_Data.ita_time_to_trigger_alert = Params.itaTimeToTriggerAlert_ms;
-    SPD_Data.USR_Data.ita_time_to_maintain_alert = Params.itaTimeToMaintainAlert_ms;
-
-    if (reset) {
-        // Set init_spd_settings=0 to not overwrite params set in sensor_command.c when initiating SPD module.
-        // Set init_spd_settings=1 to run spd with default params (set in spd.c).
-        status_spd = SPD_init(&SPD_Data, &SEN_Info, 0);
-    }
-    return status_spd;
-}
-
-/**
- *
- */
-int SEN_update_info() {
-    int i, ii;
-    SEN_Info.orientation = (SEN_Orientation_t) Params.spdSensorRotation;
-    SEN_Info.nb_zones = Params.spdResolution;
-    if (SEN_Info.nb_zones == 16) {
-        SEN_Info.res_x = 4;
-        SEN_Info.res_y = 4;
-    } else if (SEN_Info.nb_zones == 64) {
-        SEN_Info.res_x = 8;
-        SEN_Info.res_y = 8;
-    } else {
-        return 1;
-    }
-    SEN_Info.freq = 1 / (float) (Params.spdRangingPeriod / 1000.0);
-
-    // SCI configuration
-    SEN_Info.sci__dmax = Params.sciDmax;
-    SEN_Info.sci__config_data.sci__detection_threshold = sci_config.detection_threshold / 65536.0;
-    for (i = 0; i < SENSOR__MAX_NB_OF_ZONES; i++) {
-        ii = SEN_get_sensor_zoneID_from_rotation_corrected_zoneID(i, SEN_Info.orientation, SEN_Info.res_x);
-        SEN_Info.sci__config_data.sci__aggregate_id_map[i] = sci_config.map_id[ii];
-    }
-
-    return 0;
-}
-
-/**
- *
- */
 int init_vl53lmz_sensor() {
     int status = 0;
     VL53LMZ_ModuleInfo module_info;
@@ -320,20 +252,6 @@ int init_vl53lmz_sensor() {
     }
     // Reset interrupt counter as interrupt line has toggled (twice) during sttof_init call
     IntCount = 0;
-
-    // Read sensor module type : 0 is L5, 1 is L7, 2 is L8
-    uart_printf("Module type = %s\n",
-            LMZDev.module_type == 2 ?
-                    "VL53L8CX" :
-                    (LMZDev.module_type == 1 ? "VL53L7CX" : (LMZDev.module_type == 0 ? "VL53L5CX" : "Unknown")));
-    if (status != VL53LMZ_STATUS_OK) {
-        uart_printf("read_module_type failed : %d\n", status);
-        return status;
-    }
-    if ((LMZDev.module_type != 0) && (LMZDev.module_type != 1) && (LMZDev.module_type != 2)) {
-        uart_printf("Module type %u not supported !\n", LMZDev.module_type);
-        return status;
-    }
 
     // Read sensor HW unic ID
     status = vl53lmz_get_module_info(&LMZDev, &module_info);
@@ -357,7 +275,7 @@ int init_vl53lmz_sensor() {
     uart_printf("ULD Driver %s\n", VL53LMZ_API_REVISION);
 
     // Go to VL53LMZ_POWER_MODE_SLEEP mode
-    status = vl53lmz_set_power_mode(&LMZDev, VL53LMZ_POWER_MODE_SLEEP);
+    status = vl53lmz_set_power_mode(&LMZDev, VL53LMZ_POWER_MODE_WAKEUP);
     if (status != VL53LMZ_STATUS_OK) {
         uart_printf("vl53lmz_set_power_mode WAKEUP failed : %d\n", status);
         return status;
@@ -370,40 +288,9 @@ int init_vl53lmz_sensor() {
     return status;
 }
 
-int vl53lmz_sci_calculate_required_memory(VL53LMZ_Motion_Configuration *p_sci_config, uint32_t *p_required_memory) {
-    uint16_t mem_feature;
-    uint16_t mem_var;
-    uint16_t mem_amb_per_bin;
-    uint16_t mem_amb_per_bin_var;
-    uint16_t mem_fp_description;
-    uint16_t mem_overheard;
-
-    mem_feature = VL53LMZ_SCI_FEATURE_ELT_BYTE * p_sci_config->nb_of_aggregates * p_sci_config->feature_length
-            * (1 + VL53LMZ_SCI_STORE_PREV_F);
-    mem_var = VL53LMZ_SCI_FEATURE_ELT_BYTE * p_sci_config->nb_of_aggregates
-            * (p_sci_config->feature_length * VL53LMZ_SCI_STORE_VAR) * (1 + VL53LMZ_SCI_STORE_PREV_F);
-    mem_amb_per_bin = VL53LMZ_SCI_FEATURE_ELT_BYTE * (1 - VL53LMZ_SCI_STORE_VAR) * p_sci_config->nb_of_aggregates
-            * (1 + VL53LMZ_SCI_STORE_PREV_F);
-    mem_amb_per_bin_var = p_sci_config->nb_of_aggregates * 4;
-    mem_fp_description = p_sci_config->nb_of_aggregates
-            * (p_sci_config->feature_length + p_sci_config->feature_length * VL53LMZ_SCI_STORE_VAR + 1)
-            * (1 + VL53LMZ_SCI_STORE_PREV_F)
-            + (1 - VL53LMZ_SCI_STORE_VAR) * p_sci_config->nb_of_aggregates * (1 + VL53LMZ_SCI_STORE_PREV_F);
-    mem_overheard = 1 + (1 + VL53LMZ_SCI_STORE_PREV_F) + p_sci_config->nb_of_aggregates;
-
-    *p_required_memory = mem_feature + mem_var + mem_amb_per_bin + mem_amb_per_bin_var + mem_fp_description
-            + mem_overheard + VL53LMZ_SCI_PADDING_BYTES + VL53LMZ_SCI_PARTIALS_BYTES;
-
-    return VL53LMZ_STATUS_OK;
-}
-
-/**
- *
- */
 int sci_set_config(struct Params_t *p_Params) {
     int status = 0;
     int i = 0;
-    uint32_t req_size;
 
     sci_config.ref_bin_offset = (int32_t) ((((p_Params->sciDmin / 10.0) / VL53LMZ_SCI_BIN_WIDTH_CM)
             - (VL53LMZ_SCI_PULSE_WIDTH_BIN / 2)) * 2048 + 0.5);
@@ -472,17 +359,6 @@ int sci_set_config(struct Params_t *p_Params) {
         memset(sci_config.map_id, 0, 64);
     } else {
         uart_printf("sciAggNb %d not supported\n", p_Params->sciAggNb);
-        return -1;
-    }
-
-    // Calculate required memory and check it is less than 6152 Bytes
-    status = vl53lmz_sci_calculate_required_memory(&sci_config, &req_size);
-    if (status != VL53LMZ_STATUS_OK) {
-        uart_printf("vl53lmz_sci_calculate_required_memory failed : %d\n", status);
-        return status;
-    }
-    if (req_size > VL53LMZ_SCI_MAX_BUFFER_SIZE) {
-        uart_printf("Required memory is too high !\n");
         return -1;
     }
 
@@ -555,15 +431,42 @@ int vl53lmz_Configure(void) {
     }
 
 #ifdef VL53LMZ_XTALK_CALIBRATION
-      if (xtalk64_calibration_stored){
-          //uart_printf("===============Program Xtalk\n");
-          status = vl53lmz_set_caldata_xtalk(&LMZDev, xtalk_calibration_buffer);
-          if (status != VL53LMZ_STATUS_OK){
-              uart_printf("ERROR at %s(%d) : vl53lmz_set_caldata_xtalk failed : %d\n",__func__, __LINE__,status);
-              return status;
-          }
-          xtalk_calibrated = Params.Resolution;
-      }
+    uart_printf("XTALK calibration start\n");
+//        	  status = vl53lmz_calibrate_xtalk(
+//        	  		VL53LMZ_Configuration		*p_dev,
+//        	  		uint16_t			reflectance_percent,
+//        	  		uint8_t				nb_samples,
+//        	  		uint16_t			distance_mm)
+		/* Start Xtalk calibration with a 3% reflective target at 600mm for the
+		 * sensor, using 4 samples.
+		 */
+		status = vl53lmz_calibrate_xtalk(&LMZDev, 3, 4, 600);
+		if(status)
+		{
+			uart_printf("XTALK calibration failed, status %u\n", status);
+			return status;
+		}
+		else
+		{
+			uart_printf("Xtalk calibration done\n");
+
+			/* Get Xtalk calibration data, in order to use them later */
+			status = vl53lmz_get_caldata_xtalk(&LMZDev, xtalk_calibration_buffer);
+
+			if(status)
+			{
+				uart_printf("XTALK get caldata failed, status %u\n", status);
+				return status;
+			}
+			/* Set Xtalk calibration data */
+			status = vl53lmz_set_caldata_xtalk(&LMZDev, xtalk_calibration_buffer);
+			if(status)
+			{
+				uart_printf("XTALK set caldata  failed, status %u\n", status);
+				return status;
+			}
+		}
+//      xtalk_calibrated = Params.Resolution;
       #endif
 
     // Go to Autonomous - Enable Detection Thresholds on Motion Detection
@@ -600,32 +503,7 @@ int vl53lmz_Configure(void) {
         }
     }
 
-    // Update the new sensor information
-    status = SEN_update_info();
-
     return status;
-}
-
-/**
- * Prepare the params for Tracking mode
- */
-int SEN_SetParamsForTracking() {
-    Params.InterruptMode = 0;
-    Params.Resolution = Params.spdResolution;
-    Params.RangingPeriod = Params.spdRangingPeriod;
-    Params.IntegrationTime = Params.spdIntegrationTime;
-    Params.sciDmax = Params.spdApproachDistance_mm;
-    Params.sciDmin = (Params.sciDmax < SPD_SCI_DEFAULT_DCIMAX) ?
-    SPD_SCI_DEFAULT_DCIMIN :
-                                                                 (Params.sciDmax - SPD_SCI_MAX_SUPPORTED_RANGE);
-    Params.disablePipe = 0;
-    Params.sciDetectionThreshold =
-            LMZDev.platform.module_type == 0 ? 44 : (LMZDev.platform.module_type == 1 ? 44 : 150); //L5=44 / L7 = 44 / L8=150
-    Params.sciMemUpdateMode = 6;
-    Params.sciTemporalAgg = 16;
-    Params.auto_stop = 0;
-
-    return 0;
 }
 
 /**
@@ -650,159 +528,12 @@ int get_ranging_data(void) {
     }
     return new_data;
 }
-
-/**
- * Copy VL53LMZ measurement data into the sensor data structure
- * The function corrects the rotation of the sensor
+/*
+ * DEBUG FUNCTIONS
  */
-int SEN_CopyMeasurementData(SEN_Measurement_Data_t *dest, VL53LMZ_ResultsData *src_ranging, uint64_t timestamp_ms) {
-    int zone_index = 0, rot_corrected_zone_index = 0;
-    int target_index;
-    int t, z, a;
-
-    if (src_ranging->motion_indicator.nb_of_aggregates > SENSOR__SCI_MAX_NB_OF_AGG) {
-        uart_printf("Error: sci__nb_of_aggregates is greater than SENSOR__SCI_MAX_NB_OF_AGG\n");
-        return 1;
-    }
-
-    dest->timestamp_ms = timestamp_ms;
-    for (zone_index = 0; zone_index < Params.Resolution; zone_index++) {
-        rot_corrected_zone_index = SEN_get_rotation_corrected_zoneID_from_sensor_zoneID(zone_index,
-                SEN_Info.orientation, SEN_Info.res_x);
-        dest->AmbientRatePerSpad[rot_corrected_zone_index] = (float) (src_ranging->ambient_per_spad[zone_index])
-                / (float) 2048;                    // unsigned 19.11
-        for (t = 0; t < SENSOR__NB_OF_TARGETS_PER_ZONE; t++) {
-            target_index = zone_index * VL53LMZ_NB_TARGET_PER_ZONE + t;
-            dest->RangeMilliMeter[t][rot_corrected_zone_index] = (float) (src_ranging->distance_mm[target_index])
-                    / (float) 4;                  // signed 14.2
-            dest->SignalRatePerSpad[t][rot_corrected_zone_index] = (float) (src_ranging->signal_per_spad[target_index])
-                    / (float) 2048;         // unsigned 19.11
-            if (dest->RangeMilliMeter[t][rot_corrected_zone_index] <= Params.spdApproachDistance_mm) {
-                dest->RangeStatus[t][rot_corrected_zone_index] = src_ranging->target_status[target_index];
-            } else {
-                dest->RangeStatus[t][rot_corrected_zone_index] = 0;
-            }
-        }
-    }
-
-    dest->sci__output_data.sci__global_indicator = (uint8_t) (src_ranging->motion_indicator.global_indicator_1);
-    dest->sci__output_data.sci__status = src_ranging->motion_indicator.status;
-    dest->sci__output_data.sci__nb_of_detected_aggregates = src_ranging->motion_indicator.nb_of_detected_aggregates;
-    dest->sci__output_data.sci__nb_of_aggregates = src_ranging->motion_indicator.nb_of_aggregates;
-    if (sci_motion_map_stored) {
-        // Replace the SCI motion map by the one previously stored
-        memcpy(src_ranging->motion_indicator.motion, sci_motion_map,
-                src_ranging->motion_indicator.nb_of_aggregates * sizeof(uint32_t));
-        sci_motion_map_stored = 0;
-    }
-    for (z = 0; z < SENSOR__MAX_NB_OF_ZONES; z++) {
-        a = SEN_Info.sci__config_data.sci__aggregate_id_map[z]; // SEN_Info->sci__config_data.sci__aggregate_id_map contains a rotated aggregate id map
-        dest->sci__output_data.sci__per_zone_indicator[z] = (float) (src_ranging->motion_indicator.motion[a]
-                / (float) 65536); // Unsigned 16.16
-    }
-
-    return 0;
-}
-
-/**
- * Prepare the params for Tracking mode
- */
-int SEN_SetParamsForAutonomous() {
-    Params.InterruptMode = Params.spdAutonomousInterruptMode;
-    Params.Resolution = 16;
-    Params.RangingPeriod = Params.spdAutonomousRangingPeriod;
-    Params.IntegrationTime = Params.spdAutonomousIntegrationTime;
-    Params.sciDmax = Params.spdApproachDistance_mm;
-    Params.sciDmin = (Params.sciDmax < SPD_SCI_DEFAULT_DCIMAX) ?
-    SPD_SCI_DEFAULT_DCIMIN :
-                                                                 (Params.sciDmax - SPD_SCI_MAX_SUPPORTED_RANGE);
-    Params.disablePipe = 1; //Used to decrease the power consumption
-    Params.sciDetectionThreshold =
-            LMZDev.platform.module_type == 0 ? 100 : (LMZDev.platform.module_type == 1 ? 150 : 100); //L5=100 / L7 = 150 / L8=100
-    Params.sciMemUpdateMode = 1;
-    Params.sciTemporalAgg = 1;
-    Params.auto_stop = 1; //Used to save time to reprogram the sensor before going back to tracking, it avoid sending the stop_ranging command...
-
-    return 0;
-}
-
-/**
- * Change sensor mode according to SPD algo request
- */
-int SPD_ChangeSensorMode(SPD_Data_t *pSPDData) {
-    int status = 0; // 1 Fail, 0 Ok
-
-    // Wake-on SCI interrupt - Back to tracking mode
-    if (Params.InterruptMode != 0) {
-        SPD_DEBUG(2, "Changing mode to: %d pix, %.2fHz, %d ms, DataReady", Params.spdResolution,
-                1000.0/Params.spdRangingPeriod, Params.spdIntegrationTime);
-        // Store the 4x4 SCI map containing the wake-up motion
-        if (sci_config.nb_of_aggregates > SENSOR__SCI_MAX_NB_OF_AGG) {
-            uart_printf("sci__nb_of_aggregates %d not supported (only 16 supported) !\n", sci_config.nb_of_aggregates);
-            return status;
-        }
-        memcpy(sci_motion_map, RangingData.motion_indicator.motion, sci_config.nb_of_aggregates * sizeof(uint32_t));
-        sci_motion_map_stored = 1;
-        // Stop sensor ranging (if not already done by the AutoStop feature itself)
-        status = vl53lmz_stop_ranging(&LMZDev);
-        if (status != VL53LMZ_STATUS_OK) {
-            uart_printf("vl53lmz_stop_ranging failed : %d\n", status);
-            return status;
-        }
-        // Configure sensor in 8x8 DataReady mode
-        //Tracking
-        SEN_SetParamsForTracking();
-        status = vl53lmz_Configure();
-        if (status != VL53LMZ_STATUS_OK) {
-            uart_printf("ERROR at %s(%d) : vl53lmz_Configure failed : %d\n", __func__, __LINE__, status);
-            return status;
-        }
-        // Start ranging
-        status = vl53lmz_start_ranging(&LMZDev);
-        if (status != VL53LMZ_STATUS_OK) {
-            uart_printf("vl53lmz_start_ranging failed : %d\n", status);
-            return status;
-        }
-        ranging = 1;
-
-    }
-    // Go into autonomous mode
-    else if (Params.spdAutonomousInterruptMode != 0 && pSPDData->state == SPD_AUTONOMOUS) {
-        SPD_DEBUG(2, "Changing mode to: 16 pix, %.2f Hz, %d ms, Autonomous on SCI",
-                1000.0/Params.spdAutonomousRangingPeriod, Params.spdAutonomousIntegrationTime);
-        // Stop ranging
-        status = vl53lmz_stop_ranging(&LMZDev);
-        if (status != VL53LMZ_STATUS_OK) {
-            uart_printf("vl53lmz_stop_ranging failed : %d\n", status);
-            return status;
-        }
-        // Configure sensor in 4x4 Autonomous mode with SCI (algo pipe disabled) only and Interrupt checkers activated
-        SEN_SetParamsForAutonomous();
-        status = vl53lmz_Configure();
-        if (status != VL53LMZ_STATUS_OK) {
-            uart_printf("ERROR at %s(%d) : vl53lmz_Configure failed : %d\n", __func__, __LINE__, status);
-            return status;
-        }
-        // Start ranging
-        status = vl53lmz_start_ranging(&LMZDev);
-        if (status != VL53LMZ_STATUS_OK) {
-            uart_printf("vl53lmz_start_ranging failed : %d\n", status);
-            return status;
-        }
-
-        // Reset Interrupt counter to force un-served interrupts to be dropped
-        IntCount = 0;
-
-    } else {
-        // Nothing
-    }
-    return status;
-}
-
 
 /**
  * Gestion de la led de vie (tant qu'elle n'est pas utilisée par le BUS CAN
- *
  */
 uint32_t change_state_user_led(void) {
 
@@ -828,28 +559,67 @@ uint32_t change_state_user_led(void) {
 /**
  *
  */
-uint16_t can_bus_callback_debug_led(uint16_t sender, uint8_t data[6]) {
 
-    switch (data[0]) {
-    case 0:
-        HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
-        auto_led_debug = false;
-        break;
+//uint16_t can_bus_callback_debug_led(uint16_t sender, uint8_t data[6]) {
+//
+//    switch (data[0]) {
+//    case 0:
+//        HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+//        auto_led_debug = false;
+//        break;
+//
+//    case 1:
+//        HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+//        auto_led_debug = false;
+//        break;
+//
+//    case 2:
+//    default:
+//        auto_led_debug = true;
+//    }
+//    return 0;
+//}
 
-    case 1:
-        HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
-        auto_led_debug = false;
-        break;
+/**
+ * CONFIGURATION RECEIVED THROUGH CAN BUS
+ */
 
-    case 2:
-    default:
-        auto_led_debug = true;
-    }
+uint16_t can_bus_callback_rxConfig(uint16_t sender, uint8_t data[6]) {
+	uint32_t valeur = 0;
+	uart_printf("Message recu : %02X %02X %02X %02X %02X %02X\n",
+           data[0], data[1], data[2], data[3], data[4], data[5]);
+
+	valeur = data[5]<<24 + data[4]<<16 + data[3]<<8  + data[2] ;
+	uart_printf("Valeur : %u\n",valeur);
+
+	switch(data[0])
+	{
+	case 0:
+		DIST_THRESHOLD = valeur; // en mm
+		break;
+	case 1:
+		MOTION_THRESHOLD = valeur; // sans unité
+		break;
+	case 2:
+		PERIODE_FILTRAGE = valeur; // en ms
+		break;
+	case 3:
+		application_setup(); // RESET
+		break;
+//	case 4:
+//		();
+//		break;
+	default:
+		DIST_THRESHOLD = 400; // en mm
+		MOTION_THRESHOLD = 3000000; // sans unité
+		PERIODE_FILTRAGE = 10000; // en ms
+	}
+
     return 0;
 }
 
 /**
- *
+ * APPLICATION
  */
 void application_setup(void) {
 
@@ -863,13 +633,12 @@ void application_setup(void) {
 #endif
 
     /* Clean the Serial Terminal */
-    HAL_Delay(1000);
     uart_printf("\x1b[2J");         // ESC [ 2J        Erase entire screen
     uart_printf("\x1b[1;1H");
     uart_printf("SPD ULD SW Kit version %s\n", SPD_KIT_ULD_VERSION);
 
     /* Initialize VL53LMZ I2C address */
-    LMZDev.platform.address = 0x52;
+    LMZDev.platform.address = VL53LMZ_DEFAULT_I2C_ADDRESS;//0x52;
 
     /* Initialize sensor */
     status = init_vl53lmz_sensor();
@@ -877,274 +646,143 @@ void application_setup(void) {
         uart_printf("init_vl53lmz_sensor failed : %d\n", status);
     }
 
-    /* Sensor identification */
-    Params.spdRangingPeriod = (LMZDev.module_type == 1) ? SPD_RANGING_PERIOD_L7 : SPD_RANGING_PERIOD_L8;
-    Params.spdIntegrationTime = (LMZDev.module_type == 1) ? SPD_INTEGRATION_TIME_L7 : SPD_INTEGRATION_TIME_L8;
-    Params.spdAutonomousIntegrationTime =
-            (LMZDev.module_type == 1) ? SPD_AUTONOMOUS_INTEGRATION_TIME_L7 : SPD_AUTONOMOUS_INTEGRATION_TIME_L8;
 
-    /* Initialize SPD algo */
-    start_profiling();
-    SPD_Init(1);
-    stop_profiling("SPD_Init()");
-
-    // Reset sensor settings in Tracking mode (after SPD init)
-    SEN_SetParamsForTracking();
-    sci_motion_map_stored = 0;
+	uart_printf("Module type = %s\n",
+			LMZDev.module_type == 2 ?
+					"VL53L8CX" :
+					(LMZDev.module_type == 1 ? "VL53L7CX" : (LMZDev.module_type == 0 ? "VL53L5CX" : "Unknown")));
+	if (status != VL53LMZ_STATUS_OK) {
+		uart_printf("read_module_type failed : %d\n", status);
+	}
+    Params.spdRangingPeriod = 500;
+    Params.spdIntegrationTime = 450;
+//    Params.spdAutonomousIntegrationTime = 100;
+//    Params.InterruptMode = 0;
+    Params.Resolution = Params.spdResolution;//64;
+//    Params.sciDmax = Params.spdApproachDistance_mm;
+//    Params.sciDmin = (Params.sciDmax < SPD_SCI_DEFAULT_DCIMAX) ?
+//    SPD_SCI_DEFAULT_DCIMIN :
+//                                                                 (Params.sciDmax - SPD_SCI_MAX_SUPPORTED_RANGE);
+//    Params.disablePipe = 0;
+//    Params.sciDetectionThreshold = 44; // LMZDev.platform.module_type == 0 ? 44 : (LMZDev.platform.module_type == 1 ? 44 : 150); //L5=44 / L7 = 44 / L8=150
+//    Params.sciMemUpdateMode = 6;
+//    Params.sciTemporalAgg = 16;
+//    Params.auto_stop = 0;
 
     /* Init time data */
     time_data.curr_tstp = GET_TIME_STAMP();
 
     // Initialisation du bus CAN
     can_bus.begin();
-    can_bus.register_callback_function(ARBITRATION_ID_LED_CONFIG, can_bus_callback_debug_led);
+//    can_bus.register_callback_function(ARBITRATION_ID_LED_CONFIG, can_bus_callback_debug_led);
+    can_bus.register_callback_function(arbitrationId_t(0x474), can_bus_callback_rxConfig);
 
+    // Configure VL53LMZ
+    status = vl53lmz_Configure();
+    if (status != VL53LMZ_STATUS_OK) {
+        uart_printf("ERROR at %s(%d) : vl53lmz_Configure failed : %d\n", __func__, __LINE__, status);
+    }
+
+    // Start ranging
+    status = vl53lmz_start_ranging(&LMZDev);
+    if (status != VL53LMZ_STATUS_OK) {
+        uart_printf("ERROR at %s(%d) : vl53lmz_start_ranging failed : %d\n", __func__, __LINE__, status);
+        ranging = 0;
+    }
+
+    maxMotion = 0;
+	motionPower = 0;
+    minDist = 0;
+    prevMinDist = DIST_THRESHOLD;
+	dist = 0;
 }
 
-/**
- *
- */
 int application_loop(void) {
 
     int status = 0;
-    int off = 0;
-
+    int i = 0;
     uint32_t time_for_can_bus_automatic_message = 0;
+    uint32_t time_previous_movement = HAL_GetTick();
+    uint32_t time_previous_near = HAL_GetTick();
     uint32_t time_for_change_led_state = 0;
+    uint32_t current_time = HAL_GetTick();
 
     while (1) {
 
-        /*******************************/
-        /* UART RX Receiver management */
-        /*******************************/
-        if (UartComm_CmdReady) {
-            SC_HandleCmd(UartComm_RXBuffer);
-            UartComm_CmdReady = 0;
-            UartComm_Start(); // restart RX
-        }
+    	//void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 
-        /* SPD algo logging level */
-        SPDLoggingLevel = CommandData.SPDLoggingLevel;
+		status = vl53lmz_check_data_ready(&LMZDev, &isReady);
+		maxMotion = 0;
+		minDist = 3500;
 
-        /*******************************/
-        /*       START command         */
-        /*******************************/
-        /* Start ranging upon request */
-        if (CommandData.enable) {
-            CommandData.enable = 0;
-            if (ranging == 0) {
-                ranging = 1;
-                // Wake-up sensor from VL53LMZ_POWER_MODE_SLEEP or VL53LMZ_POWER_MODE_DEEP_SLEEP to VL53LMZ_POWER_MODE_WAKEUP
-                status = vl53lmz_set_power_mode(&LMZDev, VL53LMZ_POWER_MODE_WAKEUP);
-                if (status != VL53LMZ_STATUS_OK) {
-                    uart_printf("ERROR at %s(%d) : vl53lmz_set_power_mode VL53LMZ_POWER_MODE_WAKEUP failed : %d\n",
-                            __func__, __LINE__, status);
-                    return status;
-                }
-                if (off == 1)
-                    off = 0;
+		if(isReady)
+		{
+			status = vl53lmz_get_ranging_data(&LMZDev, &RangingData);
+			for(i = 0; i < 64; i++)
+			{
+//				uart_printf("%3d,%3u,%5u,%12u\n",
+//					i,
+//					RangingData.target_status[i],
+//					RangingData.distance_mm[i]  >> 2,
+//					RangingData.motion_indicator.motion[sci_config.map_id[i]]);
 
-                // Configure VL53LMZ
-                status = vl53lmz_Configure();
-                if (status != VL53LMZ_STATUS_OK) {
-                    uart_printf("ERROR at %s(%d) : vl53lmz_Configure failed : %d\n", __func__, __LINE__, status);
-                    return status;
-                }
+				// getting minimum distance among all the ranging data
+				dist = RangingData.distance_mm[i] >> 2;
+				if(RangingData.target_status[i]!=0 && dist<minDist)
+				{
+					minDist=dist;
+				}
 
-                // Start ranging
-                status = vl53lmz_start_ranging(&LMZDev);
-                if (status != VL53LMZ_STATUS_OK) {
-                    uart_printf("ERROR at %s(%d) : vl53lmz_start_ranging failed : %d\n", __func__, __LINE__, status);
-                    ranging = 0;
-                }
-            }
-        }
+				// getting maximum motion power among all the ranging data
+				motionPower = RangingData.motion_indicator.motion[sci_config.map_id[i]];
+				if(maxMotion<motionPower)
+				{
+					maxMotion=motionPower;
+				}
+			}
 
-        /*******************************/
-        /*         RANGING Mode        */
-        /*******************************/
-        /* Check if a new VL53LMZ ranging data is available */
-        start_profiling();
-        if (ranging && get_ranging_data()) {
-            /* time stats */
-            time_data.prev_tstp = time_data.curr_tstp;
-            time_data.curr_tstp = GET_TIME_STAMP();
-            time_data.ranging_period = time_data.curr_tstp - time_data.prev_tstp;
-            /* Fill-in SPD input RangeData structure from VL53LMZ ranging data */
-            SEN_CopyMeasurementData(&SEN_MeasData, &RangingData, time_data.curr_tstp);
-            stop_profiling("get_ranging_data() + SEN_CopyMeasurementData()");
-            /* Do not call SPD_run if this is the first interrupt from Autonomous mode (wake-up interrupt) */
-            if (Params.InterruptMode == 0) {
-                /* Run SPD */
-                start_profiling();
-                SPD_run(&SPD_Data, &SEN_MeasData, &SEN_Info);
-                stop_profiling("SPD_run()");
-                /* Data logging */
-                print_data();
-            }
+			current_time = HAL_GetTick();
+			uart_printf("Proximite : %4d\n", minDist);
 
-            /* Possibly change sensor mode */
-            SPD_ChangeSensorMode(&SPD_Data);
-        }
+			// if the closest distance is lower than the threshold for the first time in PERIODE_CAN_BUS_AUTOMATIC_MESSAGE, CAN message sent CAN message sent
+			if(minDist<=DIST_THRESHOLD && prevMinDist>DIST_THRESHOLD)
+			{
+				if(current_time - time_previous_near >= PERIODE_FILTRAGE)
+				{
+					uint8_t toSend[4] = { 0xD1,0x57,0xA4, 0xCE};
+					can_bus.send(toSend, 4);
+					time_previous_near = current_time;
+				}
+			}
 
-        /*******************************/
-        /*         STOP command        */
-        /*******************************/
-        /* Stop ranging upon request */
-        if (CommandData.disable) {
-            SPD_Init(1);
-            // Reset sensor settings in Tracking mode (after SPD init)
-            SEN_SetParamsForTracking();
-            sci_motion_map_stored = 0;
-            // Enable the output pipe
-            status = vl53lmz_spd_set_output_pipe(&LMZDev, VL53LMZ_NB_TARGET_PER_ZONE, Params.disablePipe, 0x01,
-                    Params.auto_stop);
-            if (ranging) {
-                // Stop ranging
-                status = vl53lmz_stop_ranging(&LMZDev);
-                if (status != VL53LMZ_STATUS_OK) {
-                    uart_printf("vl53lmz_stop_ranging failed : %d\n", status);
-                    return status;
-                }
-                // Go to VL53LMZ_POWER_MODE_SLEEP
-                status = vl53lmz_set_power_mode(&LMZDev, VL53LMZ_POWER_MODE_SLEEP);
-                if (status != VL53LMZ_STATUS_OK) {
-                    uart_printf("vl53lmz_set_power_mode LP_IDLE failed : %d\n", status);
-                    return status;
-                }
-            }
-            CommandData.disable = 0;
-            ranging = 0;
-        }
+			prevMinDist = minDist;
 
-        /*******************************/
-        /*          OFF command        */
-        /*******************************/
-        /* Set Sensor in ULP mode : off */
-        if ((CommandData.off) && (ranging == 0)) {
-            // Go to VL53LMZ_POWER_MODE_DEEP_SLEEP state
-            status = vl53lmz_set_power_mode(&LMZDev, VL53LMZ_POWER_MODE_DEEP_SLEEP);
-            if (status != VL53LMZ_STATUS_OK) {
-                uart_printf("vl53lmz_set_power_mode ULP_IDLE failed : %d\n", status);
-                return status;
-            }
-            // Reset calibration status
-            xtalk_calibrated = xtalk64_calibration_stored ? 64 : 0;
-            // Fini
-            CommandData.off = 0;
-            off = 1;
-        }
+			// if the greatest motion power is higher than the threshold for the first time in PERIODE_CAN_BUS_AUTOMATIC_MESSAGE, CAN message sent
+			if(maxMotion>=MOTION_THRESHOLD)
+			{
+				uart_printf("Mouvement : %4d\n", maxMotion);
+				if(current_time - time_previous_movement >= PERIODE_FILTRAGE)
+				{
+					//uart_printf("Curr time %8u Prev time %8u Diff %8u\n",current_time,time_previous_movement, current_time-time_previous_movement);
+		        	uint8_t toSend[4] = { 0x5E,0xBA,0x1A,0xDE, };
+		            can_bus.send(toSend, 4);
+		            time_previous_movement = current_time;
+				}
+			}
+			else
+			{
+				uart_printf("Rien ne bouge : %4d\n", maxMotion);
+			}
+		}
 
-        /*******************************/
-        /*         SET command         */
-        /*******************************/
-        /* Change SPD params upon request */
-        if (CommandData.set) {
-            SPD_Init(1); //Update the SPD parameters according the new params defined by the set command
-            // Reset sensor settings in Tracking mode (after SPD init)
-            SEN_SetParamsForTracking();
-            sci_motion_map_stored = 0;
-            CommandData.set = 0;
-        }
+		HAL_Delay(5);
 
-#ifdef VL53LMZ_XTALK_CALIBRATION
-        /*******************************/
-        /*     GET_CALDATA command     */
-        /*******************************/
-        /* Get Calibration data */
-        if ((CommandData.get_caldata) && (ranging==0) && (!off)){
-            // Wake-up sensor from ULP or LP_IDLE to HP_IDLE
-            status = vl53lmz_set_power_mode(&LMZDev, VL53LMZ_POWER_MODE_WAKEUP);
-            if (status != VL53LMZ_STATUS_OK){
-                uart_printf("vl53lmz_set_power_mode HP_IDLE failed : %d\n",status);
-                return status;
-            }
-            // Read Xtalk calibration buffer from sensor (ULD format)
-            status = vl53lmz_get_caldata_xtalk(&LMZDev, cal_buffer);
-            if (status != VL53LMZ_STATUS_OK){
-                uart_printf("vl53lmz_get_caldata_xtalk failed : %d\n",status);
-                return status;
-            }
-            // Convert Xtalk calibration buffer into legacy Bare format
-//          status = vl53lmz_convert_xtalk_buffer_uld_to_bare(&LMZDev, cal_buffer);
-//          if (status != VL53LMZ_STATUS_OK){
-//              uart_printf("vl53lmz_convert_xtalk_buffer_uld_to_bare failed : %d\n",status);
-//              return status;
-//          }
-            // Print buffer
-            print_buffer(cal_buffer, VL53LMZ_XTALK_BUFFER_SIZE, PRINT_FORMAT_TXT);
-            if (CommandData.DebugLoggingLevel == 1){
-                print_decoded_cal_data(cal_buffer, VL53LMZ_XTALK_BUFFER_SIZE);
-            }
-            CommandData.get_caldata = 0;
-        }
-
-        /*******************************/
-        /*     SET_CALDATA command     */
-        /*******************************/
-        /* Set Calibration data */
-        if ((CommandData.set_caldata) && (ranging==0) && (!off)){
-            // Check buffer size
-            if (CommandData.buffer_size != VL53LMZ_XTALK_BUFFER_SIZE){
-                uart_printf("Calibration data size (%d) not correct : %d expected !\n",CommandData.buffer_size, VL53LMZ_XTALK_BUFFER_SIZE);
-                return -1;
-            }
-            // Convert xtalk calibration buffer into ULD format
-//          status = vl53lmz_convert_xtalk_buffer_bare_to_uld(&LMZDev, CommandData.buffer);
-//          if (status != VL53LMZ_STATUS_OK){
-//              uart_printf("vl53lmz_convert_xtalk_buffer_bare_to_uld failed : %d\n",status);
-//              return status;
-//          }
-            // Program xtalk calibration buffer (ULD format)
-            status = vl53lmz_set_caldata_xtalk(&LMZDev, CommandData.buffer);
-            if (status != VL53LMZ_STATUS_OK){
-                uart_printf("vl53lmz_set_caldata_xtalk failed : %d\n",status);
-                return status;
-            }
-            // Keep a copy (ULD format)
-            memcpy(xtalk_calibration_buffer, CommandData.buffer, VL53LMZ_XTALK_BUFFER_SIZE);
-            // Update status
-            xtalk64_calibration_stored = 1;
-            xtalk_calibrated = 64;
-            CommandData.set_caldata = 0;
-        }
-
-        /*******************************/
-        /*     CALIBRATE command     */
-        /*******************************/
-        /* Perform Calibration */
-        if ((CommandData.calibrate) && (ranging==0) && (!off)){
-            // Wake-up sensor from ULP or LP_IDLE to HP_IDLE
-            status = vl53lmz_set_power_mode(&LMZDev, VL53LMZ_POWER_MODE_WAKEUP);
-            if (status != VL53LMZ_STATUS_OK){
-                uart_printf("vl53lmz_set_power_mode HP_IDLE failed : %d\n",status);
-                return status;
-            }
-            status = perform_calibration(CommandData.calibrate);
-            if (status != VL53LMZ_STATUS_OK){
-                uart_printf("perform_calibration failed : %d\n",status);
-            }
-            CommandData.calibrate = 0;
-        }
-        #endif
-
-        /*******************************/
-        /*    GET_CALSTATUS command    */
-        /*******************************/
-        /* Get Calibration Status */
-        if ((CommandData.get_calstatus) && (ranging == 0)) {
-            uart_printf("refspad:%d,offset:%d,xtalk:%d\n", -1, -1, xtalk_calibrated);
-            CommandData.get_calstatus = 0;
-        }
-
-
-        uint32_t current_time = HAL_GetTick();
         // Ecriture message CAN de vie (pour vérifier que le can fonctionne)
-        if (current_time >= time_for_can_bus_automatic_message) {
-            uint8_t toSend[8] = { 0xC0, 0x1D, 0xC0, 0xFF, 0xEE, 0xBA, 0xDB, 0xAD };
-            can_bus.send(toSend, 8);
-            time_for_can_bus_automatic_message += PERIODE_CAN_BUS_AUTOMATIC_MESSAGE;
-        }
+//        if (current_time >= time_for_can_bus_automatic_message) {
+//            uint8_t toSend[8] = { 0xC0, 0x1D, 0xC0, 0xFF, 0xEE, 0xBA, 0xDB, 0xAD };
+//            can_bus.send(toSend, 8);
+//            time_for_can_bus_automatic_message += PERIODE_CAN_BUS_AUTOMATIC_MESSAGE;
+//        }
 
         // Modification état led debug (pour vérifier que l'application fonctionne)
         if (current_time >= time_for_change_led_state) {
@@ -1153,8 +791,4 @@ int application_loop(void) {
     }
 }
 
-
-
-
 // end of file
-
