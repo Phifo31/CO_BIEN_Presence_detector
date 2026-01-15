@@ -58,4 +58,5 @@ Doxygen/
 # rapports générés par CubeMx
 CO_BIEN_Presence_detector.pdf
 CO_BIEN_Presence_detector.txt
+.settings/language.settings.xml
 

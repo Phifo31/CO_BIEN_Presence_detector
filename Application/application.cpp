@@ -11,6 +11,14 @@
 
 #include "main.h"
 
+#include "../../CO_BIEN_Konectik/Common/can_ids.h"
+
+// Choix de l'id du capteur : 3 lignes à commenter 1 seule ligne à activer
+//#define CAN_SENSOR_ID   SPD_ADRESS_SENSOR_SOUTH
+//#define CAN_SENSOR_ID   SPD_ADRESS_SENSOR_NORTH
+//#define CAN_SENSOR_ID   SPD_ADRESS_SENSOR_EAST
+#define CAN_SENSOR_ID   SPD_ADRESS_SENSOR_WEST
+
 #define GET_TIME_STAMP()  (int32_t)HAL_GetTick()
 #define UART_BUFFER_SIZE    2048
 
@@ -32,7 +40,6 @@
 #include "sensor.h"
 #include "comms_encode.h" // Encoded channel for SPD EVK
 
-#include "../../CO_BIEN_Konectik/Common/can_ids.h"
 #include "can_bus.h"
 
 #include "application.h"
@@ -58,7 +65,7 @@ int ranging = 0;
 int8_t xtalk64_calibration_stored = 0;
 int8_t xtalk_calibrated = 0;    // 0:default, 16 or 64:calibrated
 #ifdef VL53LMZ_XTALK_CALIBRATION
-uint8_t                 xtalk_calibration_buffer[VL53LMZ_XTALK_BUFFER_SIZE];
+uint8_t xtalk_calibration_buffer[VL53LMZ_XTALK_BUFFER_SIZE];
 #endif
 VL53LMZ_Motion_Configuration sci_config;
 
@@ -93,11 +100,12 @@ int SPDLoggingLevel = 1; //used by the SPD library
 uint32_t sci_motion_map[SENSOR__SCI_MAX_NB_OF_AGG]; // This buffer is needed to store the SCI motion map on the wake-up interrupt
 uint8_t sci_motion_map_stored = 0; // This flag is used to know when the SCI map is stored
 
-CAN_BUS can_bus(0x474);
+CAN_BUS can_bus(CAN_SENSOR_ID);
 volatile bool auto_led_debug = true;
 uint32_t MOTION_THRESHOLD = 3000000; // sans unit
 uint32_t DIST_THRESHOLD = 400; // en mm
 uint32_t PERIODE_FILTRAGE = 10000; // en ms
+uint32_t SPD_IMMOBILE_TIME_MS = 2000;
 
 #if ENABLE_USER_LOG
 /**
@@ -122,7 +130,6 @@ uint16_t msec2sec(uint32_t n, uint16_t *reste) {
     return (uint16_t) q;
 }
 
-
 // Redirection du printf sur UART2 (pour une nucleo 64)
 int _write(int file, char *ptr, int len) {
     HAL_UART_Transmit(&huart2, (uint8_t*) ptr, len, 100);
@@ -131,10 +138,10 @@ int _write(int file, char *ptr, int len) {
 
 /*
  int __io_putchar(int ch) {
-    HAL_UART_Transmit(&huart2, (uint8_t*) &ch, 1, 100);
-    //ITM_SendChar(ch);
-    return (ch);
-} */
+ HAL_UART_Transmit(&huart2, (uint8_t*) &ch, 1, 100);
+ //ITM_SendChar(ch);
+ return (ch);
+ } */
 
 #endif
 
@@ -169,14 +176,13 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
 // UART functions
 
-void Uart_DoCommand(){
+void Uart_DoCommand() {
 
-    if( UartComm_CmdReady == 0 ){
-        memcpy(UartComm_RXBuffer , (char*)Uart_RXBuffer, Uart_RxRcvIndex+1 ); //copy ending 0
+    if (UartComm_CmdReady == 0) {
+        memcpy(UartComm_RXBuffer, (char*) Uart_RXBuffer, Uart_RxRcvIndex + 1); //copy ending 0
         UartComm_RXSize = Uart_RxRcvIndex;
         UartComm_CmdReady = 1;
-    }
-    else {
+    } else {
         //TODO full command got lost
     }
 }
@@ -217,19 +223,17 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
         Uart_RXBuffer[Uart_RxRcvIndex] = 0;
         ContinueRX = 0;
         Uart_DoCommand();
-    }
-    else {
-        if (Uart_RxRcvIndex >= sizeof(Uart_RXBuffer)-1) {
+    } else {
+        if (Uart_RxRcvIndex >= sizeof(Uart_RXBuffer) - 1) {
             // overrun the buffer reset
             Uart_RxRcvIndex = 0;
             Uart_nOverrun++;
-        }
-        else {
+        } else {
             Uart_RxRcvIndex++;
         }
     }
     if (ContinueRX)
-        HAL_UART_Receive_IT(huart, (uint8_t *) &Uart_RXBuffer[Uart_RxRcvIndex], 1);
+        HAL_UART_Receive_IT(huart, (uint8_t*) &Uart_RXBuffer[Uart_RxRcvIndex], 1);
 }
 
 /*
@@ -248,6 +252,7 @@ int init_vl53lmz_sensor() {
     status = vl53lmz_init(&LMZDev);
     if (status != VL53LMZ_STATUS_OK) {
         uart_printf("vl53lmz_init failed : %d\n", status);
+        USER_LOG("vl53lmz_init failed : %d", status);
         return status;
     }
     // Reset interrupt counter as interrupt line has toggled (twice) during sttof_init call
@@ -437,37 +442,32 @@ int vl53lmz_Configure(void) {
 //        	  		uint16_t			reflectance_percent,
 //        	  		uint8_t				nb_samples,
 //        	  		uint16_t			distance_mm)
-		/* Start Xtalk calibration with a 3% reflective target at 600mm for the
-		 * sensor, using 4 samples.
-		 */
-		status = vl53lmz_calibrate_xtalk(&LMZDev, 3, 4, 600);
-		if(status)
-		{
-			uart_printf("XTALK calibration failed, status %u\n", status);
-			return status;
-		}
-		else
-		{
-			uart_printf("Xtalk calibration done\n");
+    /* Start Xtalk calibration with a 3% reflective target at 600mm for the
+     * sensor, using 4 samples.
+     */
+    status = vl53lmz_calibrate_xtalk(&LMZDev, 3, 4, 600);
+    if (status) {
+        uart_printf("XTALK calibration failed, status %u\n", status);
+        return status;
+    } else {
+        uart_printf("Xtalk calibration done\n");
 
-			/* Get Xtalk calibration data, in order to use them later */
-			status = vl53lmz_get_caldata_xtalk(&LMZDev, xtalk_calibration_buffer);
+        /* Get Xtalk calibration data, in order to use them later */
+        status = vl53lmz_get_caldata_xtalk(&LMZDev, xtalk_calibration_buffer);
 
-			if(status)
-			{
-				uart_printf("XTALK get caldata failed, status %u\n", status);
-				return status;
-			}
-			/* Set Xtalk calibration data */
-			status = vl53lmz_set_caldata_xtalk(&LMZDev, xtalk_calibration_buffer);
-			if(status)
-			{
-				uart_printf("XTALK set caldata  failed, status %u\n", status);
-				return status;
-			}
-		}
+        if (status) {
+            uart_printf("XTALK get caldata failed, status %u\n", status);
+            return status;
+        }
+        /* Set Xtalk calibration data */
+        status = vl53lmz_set_caldata_xtalk(&LMZDev, xtalk_calibration_buffer);
+        if (status) {
+            uart_printf("XTALK set caldata  failed, status %u\n", status);
+            return status;
+        }
+    }
 //      xtalk_calibrated = Params.Resolution;
-      #endif
+#endif
 
     // Go to Autonomous - Enable Detection Thresholds on Motion Detection
     if (Params.InterruptMode == 1) {
@@ -559,61 +559,61 @@ uint32_t change_state_user_led(void) {
 /**
  *
  */
+uint16_t can_bus_callback_debug_led(uint16_t sender, uint8_t data[6]) {
 
-//uint16_t can_bus_callback_debug_led(uint16_t sender, uint8_t data[6]) {
-//
-//    switch (data[0]) {
-//    case 0:
-//        HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
-//        auto_led_debug = false;
-//        break;
-//
-//    case 1:
-//        HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
-//        auto_led_debug = false;
-//        break;
-//
-//    case 2:
-//    default:
-//        auto_led_debug = true;
-//    }
-//    return 0;
-//}
+    switch (data[0]) {
+    case 0:
+        HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+        auto_led_debug = false;
+        break;
+
+    case 1:
+        HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+        auto_led_debug = false;
+        break;
+
+    case 2:
+    default:
+        auto_led_debug = true;
+    }
+    return 0;
+}
 
 /**
- * CONFIGURATION RECEIVED THROUGH CAN BUS
+ *
  */
-
 uint16_t can_bus_callback_rxConfig(uint16_t sender, uint8_t data[6]) {
-	uint32_t valeur = 0;
-	uart_printf("Message recu : %02X %02X %02X %02X %02X %02X\n",
-           data[0], data[1], data[2], data[3], data[4], data[5]);
+    uint32_t valeur = 0;
+    uart_printf("Message recu : %02X %02X %02X %02X %02X %02X\r\n", data[0], data[1], data[2], data[3], data[4],
+            data[5]);
 
-	valeur = data[5]<<24 + data[4]<<16 + data[3]<<8  + data[2] ;
-	uart_printf("Valeur : %u\n",valeur);
+    valeur = (data[5] << 24) + (data[4] << 16) + (data[3] << 8) + data[2];
+    uart_printf("Valeur : %u\r\n", valeur);
 
-	switch(data[0])
-	{
-	case 0:
-		DIST_THRESHOLD = valeur; // en mm
-		break;
-	case 1:
-		MOTION_THRESHOLD = valeur; // sans unité
-		break;
-	case 2:
-		PERIODE_FILTRAGE = valeur; // en ms
-		break;
-	case 3:
-		application_setup(); // RESET
-		break;
+    switch (data[0]) {
+    case 0:
+        DIST_THRESHOLD = valeur; // en mm
+        break;
+    case 1:
+        MOTION_THRESHOLD = valeur; // sans unité
+        break;
+    case 2:
+        PERIODE_FILTRAGE = valeur; // en ms
+        break;
+    case 4:
+        SPD_IMMOBILE_TIME_MS = valeur; // RESET
+        break;
+    case 3:
+        application_setup(); // RESET
+        break;
 //	case 4:
 //		();
 //		break;
-	default:
-		DIST_THRESHOLD = 400; // en mm
-		MOTION_THRESHOLD = 3000000; // sans unité
-		PERIODE_FILTRAGE = 10000; // en ms
-	}
+    default:
+        DIST_THRESHOLD = 400; // en mm
+        MOTION_THRESHOLD = 3000000; // sans unité
+        PERIODE_FILTRAGE = 10000; // en ms
+    }
 
     return 0;
 }
@@ -635,30 +635,30 @@ void application_setup(void) {
     /* Clean the Serial Terminal */
     uart_printf("\x1b[2J");         // ESC [ 2J        Erase entire screen
     uart_printf("\x1b[1;1H");
-    uart_printf("SPD ULD SW Kit version %s\n", SPD_KIT_ULD_VERSION);
+    uart_printf("SPD ULD SW Kit version %s\r\n", SPD_KIT_ULD_VERSION);
+    //USER_LOG("SPD ULD SW Kit version %s", SPD_KIT_ULD_VERSION);
 
     /* Initialize VL53LMZ I2C address */
-    LMZDev.platform.address = VL53LMZ_DEFAULT_I2C_ADDRESS;//0x52;
+    LMZDev.platform.address = VL53LMZ_DEFAULT_I2C_ADDRESS;         //0x52;
 
     /* Initialize sensor */
     status = init_vl53lmz_sensor();
     if (status != VL53LMZ_STATUS_OK) {
-        uart_printf("init_vl53lmz_sensor failed : %d\n", status);
+        uart_printf("init_vl53lmz_sensor failed : %d\r\n", status);
     }
 
-
-	uart_printf("Module type = %s\n",
-			LMZDev.module_type == 2 ?
-					"VL53L8CX" :
-					(LMZDev.module_type == 1 ? "VL53L7CX" : (LMZDev.module_type == 0 ? "VL53L5CX" : "Unknown")));
-	if (status != VL53LMZ_STATUS_OK) {
-		uart_printf("read_module_type failed : %d\n", status);
-	}
+    uart_printf("Module type = %s\r\n",
+            LMZDev.module_type == 2 ?
+                    "VL53L8CX" :
+                    (LMZDev.module_type == 1 ? "VL53L7CX" : (LMZDev.module_type == 0 ? "VL53L5CX" : "Unknown")));
+    if (status != VL53LMZ_STATUS_OK) {
+        uart_printf("read_module_type failed : %d\r\n", status);
+    }
     Params.spdRangingPeriod = 500;
     Params.spdIntegrationTime = 450;
 //    Params.spdAutonomousIntegrationTime = 100;
 //    Params.InterruptMode = 0;
-    Params.Resolution = Params.spdResolution;//64;
+    Params.Resolution = Params.spdResolution;         //64;
 //    Params.sciDmax = Params.spdApproachDistance_mm;
 //    Params.sciDmin = (Params.sciDmax < SPD_SCI_DEFAULT_DCIMAX) ?
 //    SPD_SCI_DEFAULT_DCIMIN :
@@ -676,113 +676,128 @@ void application_setup(void) {
     can_bus.begin();
 //    can_bus.register_callback_function(ARBITRATION_ID_LED_CONFIG, can_bus_callback_debug_led);
     can_bus.register_callback_function(arbitrationId_t(0x474), can_bus_callback_rxConfig);
+    can_bus.register_callback_function(ARBITRATION_ID_LED_CONFIG, can_bus_callback_debug_led);
 
     // Configure VL53LMZ
     status = vl53lmz_Configure();
     if (status != VL53LMZ_STATUS_OK) {
-        uart_printf("ERROR at %s(%d) : vl53lmz_Configure failed : %d\n", __func__, __LINE__, status);
+        uart_printf("ERROR at %s(%d) : vl53lmz_Configure failed : %d\r\n", __func__, __LINE__, status);
     }
 
     // Start ranging
     status = vl53lmz_start_ranging(&LMZDev);
     if (status != VL53LMZ_STATUS_OK) {
-        uart_printf("ERROR at %s(%d) : vl53lmz_start_ranging failed : %d\n", __func__, __LINE__, status);
+        uart_printf("ERROR at %s(%d) : vl53lmz_start_ranging failed : %d\r\n", __func__, __LINE__, status);
         ranging = 0;
     }
 
     maxMotion = 0;
-	motionPower = 0;
+    motionPower = 0;
     minDist = 0;
     prevMinDist = DIST_THRESHOLD;
-	dist = 0;
+    dist = 0;
 }
 
+/**
+ *
+ */
 int application_loop(void) {
 
     int status = 0;
     int i = 0;
-    uint32_t time_for_can_bus_automatic_message = 0;
-    uint32_t time_previous_movement = HAL_GetTick();
+    uint32_t time_for_can_bus_automatic_message = 15000;
+    //uint32_t time_previous_movement = HAL_GetTick();
     uint32_t time_previous_near = HAL_GetTick();
     uint32_t time_for_change_led_state = 0;
     uint32_t current_time = HAL_GetTick();
+    uint32_t last_motion_time;
+    bool is_immobile = true;
 
     while (1) {
+        //void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
+        status = vl53lmz_check_data_ready(&LMZDev, &isReady);
+        UNUSED(status);
+        maxMotion = 0;
+        minDist = 3500;
+        last_motion_time = 0xFFFFFFFF;
 
-    	//void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
-
-		status = vl53lmz_check_data_ready(&LMZDev, &isReady);
-		maxMotion = 0;
-		minDist = 3500;
-
-		if(isReady)
-		{
-			status = vl53lmz_get_ranging_data(&LMZDev, &RangingData);
-			for(i = 0; i < 64; i++)
-			{
+        if (isReady) {
+            status = vl53lmz_get_ranging_data(&LMZDev, &RangingData);
+            for (i = 0; i < 64; i++) {
 //				uart_printf("%3d,%3u,%5u,%12u\n",
 //					i,
 //					RangingData.target_status[i],
 //					RangingData.distance_mm[i]  >> 2,
 //					RangingData.motion_indicator.motion[sci_config.map_id[i]]);
 
-				// getting minimum distance among all the ranging data
-				dist = RangingData.distance_mm[i] >> 2;
-				if(RangingData.target_status[i]!=0 && dist<minDist)
-				{
-					minDist=dist;
-				}
+                // getting minimum distance among all the ranging data
+                dist = RangingData.distance_mm[i] >> 2;
+                if (RangingData.target_status[i] != 0 && dist < minDist) {
+                    minDist = dist;
+                }
 
-				// getting maximum motion power among all the ranging data
-				motionPower = RangingData.motion_indicator.motion[sci_config.map_id[i]];
-				if(maxMotion<motionPower)
-				{
-					maxMotion=motionPower;
-				}
-			}
+                // getting maximum motion power among all the ranging data
+                motionPower = RangingData.motion_indicator.motion[sci_config.map_id[i]];
+                if (maxMotion < motionPower) {
+                    maxMotion = motionPower;
+                }
+            }
 
-			current_time = HAL_GetTick();
-			uart_printf("Proximite : %4d\n", minDist);
+            current_time = HAL_GetTick();
+            uart_printf("Proximite : %4d\r\n", minDist);
 
-			// if the closest distance is lower than the threshold for the first time in PERIODE_CAN_BUS_AUTOMATIC_MESSAGE, CAN message sent CAN message sent
-			if(minDist<=DIST_THRESHOLD && prevMinDist>DIST_THRESHOLD)
-			{
-				if(current_time - time_previous_near >= PERIODE_FILTRAGE)
-				{
-					uint8_t toSend[4] = { 0xD1,0x57,0xA4, 0xCE};
-					can_bus.send(toSend, 4);
-					time_previous_near = current_time;
-				}
-			}
+            // if the closest distance is lower than the threshold for the first time in PERIODE_CAN_BUS_AUTOMATIC_MESSAGE, CAN message sent CAN message sent
+            if ((uint32_t) minDist <= DIST_THRESHOLD && (uint32_t) prevMinDist > DIST_THRESHOLD) {
+                if (current_time - time_previous_near >= PERIODE_FILTRAGE) {
+                    uint8_t toSend[4] = { 0xD1, 0x57, 0xA4, 0xCE };
+                    can_bus.send(toSend, 4);
+                    time_previous_near = current_time;
+                }
+            }
+            prevMinDist = minDist;
 
-			prevMinDist = minDist;
+            // if the greatest motion power is higher than the threshold for the first time in PERIODE_CAN_BUS_AUTOMATIC_MESSAGE, CAN message sent
+            if (maxMotion >= MOTION_THRESHOLD) {  // if motion_detected
+                last_motion_time = HAL_GetTick();
+                if (is_immobile) {
+                    is_immobile = false;
+                    uint8_t toSend[4] = { 0x5E, 0xBA, 0x1A, 0xDE };
+                    can_bus.send(toSend, 4);
+                    //time_previous_movement = current_time;
+                    uart_printf("Mouvement : %4d\r\n", maxMotion);
+                    //DEBUG_LOG("Mouvement : ");
+                }
+            } else {
+                if (!is_immobile && ((HAL_GetTick() - last_motion_time) > SPD_IMMOBILE_TIME_MS)) {
+                    is_immobile = true;
+                    uint8_t toSend[4] = { 0x00, 0xAB, 0xA1, 0xED };
+                    can_bus.send(toSend, 4);
+                    uart_printf("Plus rien ne bouge depuis : %4d\r\n", SPD_IMMOBILE_TIME_MS);
+                    //DEBUG_LOG("Immobile depuis %u ms ", IMU_IMMOBILE_TIME_MS);
+                }
+            }
 
-			// if the greatest motion power is higher than the threshold for the first time in PERIODE_CAN_BUS_AUTOMATIC_MESSAGE, CAN message sent
-			if(maxMotion>=MOTION_THRESHOLD)
-			{
-				uart_printf("Mouvement : %4d\n", maxMotion);
-				if(current_time - time_previous_movement >= PERIODE_FILTRAGE)
-				{
-					//uart_printf("Curr time %8u Prev time %8u Diff %8u\n",current_time,time_previous_movement, current_time-time_previous_movement);
-		        	uint8_t toSend[4] = { 0x5E,0xBA,0x1A,0xDE, };
-		            can_bus.send(toSend, 4);
-		            time_previous_movement = current_time;
-				}
-			}
-			else
-			{
-				uart_printf("Rien ne bouge : %4d\n", maxMotion);
-			}
-		}
+//            if (maxMotion >= MOTION_THRESHOLD) {
+//                uart_printf("Mouvement : %4d\r\n", maxMotion);
+//                if (current_time - time_previous_movement >= PERIODE_FILTRAGE) {
+//                    //uart_printf("Curr time %8u Prev time %8u Diff %8u\n",current_time,time_previous_movement, current_time-time_previous_movement);
+//                    uint8_t toSend[4] = { 0x5E, 0xBA, 0x1A, 0xDE, };
+//                    can_bus.send(toSend, 4);
+//                    time_previous_movement = current_time;
+//                }
+//            } else {
+//                uart_printf("Rien ne bouge : %4d\r\n", maxMotion);
+//            }
+        }
 
-		HAL_Delay(5);
+        HAL_Delay(5);
 
         // Ecriture message CAN de vie (pour vérifier que le can fonctionne)
-//        if (current_time >= time_for_can_bus_automatic_message) {
-//            uint8_t toSend[8] = { 0xC0, 0x1D, 0xC0, 0xFF, 0xEE, 0xBA, 0xDB, 0xAD };
-//            can_bus.send(toSend, 8);
-//            time_for_can_bus_automatic_message += PERIODE_CAN_BUS_AUTOMATIC_MESSAGE;
-//        }
+        if (current_time >= time_for_can_bus_automatic_message) {
+            uint8_t toSend[8] = { 0x04, 0x74, 0xC0, 0xFF, 0xEE, 0xBA, 0xDB, 0xAD };
+            can_bus.send(toSend, 8);
+            time_for_can_bus_automatic_message += PERIODE_CAN_BUS_AUTOMATIC_MESSAGE;
+        }
 
         // Modification état led debug (pour vérifier que l'application fonctionne)
         if (current_time >= time_for_change_led_state) {
