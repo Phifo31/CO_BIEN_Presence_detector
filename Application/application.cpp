@@ -15,9 +15,9 @@
 
 // Choix de l'id du capteur : 3 lignes à commenter 1 seule ligne à activer
 //#define CAN_SENSOR_ID   SPD_ADRESS_SENSOR_SOUTH
-//#define CAN_SENSOR_ID   SPD_ADRESS_SENSOR_NORTH
+#define CAN_SENSOR_ID   SPD_ADRESS_SENSOR_NORTH
 //#define CAN_SENSOR_ID   SPD_ADRESS_SENSOR_EAST
-#define CAN_SENSOR_ID   SPD_ADRESS_SENSOR_WEST
+//#define CAN_SENSOR_ID   SPD_ADRESS_SENSOR_WEST
 
 #define GET_TIME_STAMP()  (int32_t)HAL_GetTick()
 #define UART_BUFFER_SIZE    2048
@@ -604,7 +604,7 @@ uint16_t can_bus_callback_rxConfig(uint16_t sender, uint8_t data[6]) {
         SPD_IMMOBILE_TIME_MS = valeur; // RESET
         break;
     case 3:
-        application_setup(); // RESET
+        NVIC_SystemReset();  // RESET
         break;
 //	case 4:
 //		();
@@ -674,8 +674,7 @@ void application_setup(void) {
 
     // Initialisation du bus CAN
     can_bus.begin();
-//    can_bus.register_callback_function(ARBITRATION_ID_LED_CONFIG, can_bus_callback_debug_led);
-    can_bus.register_callback_function(arbitrationId_t(0x474), can_bus_callback_rxConfig);
+    can_bus.register_callback_function(arbitrationId_t(1410), can_bus_callback_rxConfig);
     can_bus.register_callback_function(ARBITRATION_ID_LED_CONFIG, can_bus_callback_debug_led);
 
     // Configure VL53LMZ
@@ -714,7 +713,6 @@ int application_loop(void) {
     bool is_immobile = true;
 
     while (1) {
-        //void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
         status = vl53lmz_check_data_ready(&LMZDev, &isReady);
         UNUSED(status);
         maxMotion = 0;
@@ -724,12 +722,6 @@ int application_loop(void) {
         if (isReady) {
             status = vl53lmz_get_ranging_data(&LMZDev, &RangingData);
             for (i = 0; i < 64; i++) {
-//				uart_printf("%3d,%3u,%5u,%12u\n",
-//					i,
-//					RangingData.target_status[i],
-//					RangingData.distance_mm[i]  >> 2,
-//					RangingData.motion_indicator.motion[sci_config.map_id[i]]);
-
                 // getting minimum distance among all the ranging data
                 dist = RangingData.distance_mm[i] >> 2;
                 if (RangingData.target_status[i] != 0 && dist < minDist) {
@@ -749,8 +741,8 @@ int application_loop(void) {
             // if the closest distance is lower than the threshold for the first time in PERIODE_CAN_BUS_AUTOMATIC_MESSAGE, CAN message sent CAN message sent
             if ((uint32_t) minDist <= DIST_THRESHOLD && (uint32_t) prevMinDist > DIST_THRESHOLD) {
                 if (current_time - time_previous_near >= PERIODE_FILTRAGE) {
-                    uint8_t toSend[4] = { 0xD1, 0x57, 0xA4, 0xCE };
-                    can_bus.send(toSend, 4);
+                    uint8_t toSend[6] = { 0x05, 0x8C, 0xD1, 0x57, 0xA4, 0xCE };
+                    can_bus.send(toSend, 6);
                     time_previous_near = current_time;
                 }
             }
@@ -761,19 +753,17 @@ int application_loop(void) {
                 last_motion_time = HAL_GetTick();
                 if (is_immobile) {
                     is_immobile = false;
-                    uint8_t toSend[4] = { 0x5E, 0xBA, 0x1A, 0xDE };
-                    can_bus.send(toSend, 4);
+                    uint8_t toSend[6] = { 0x05, 0x8C, 0x5E, 0xBA, 0x1A, 0xDE };
+                    can_bus.send(toSend, 6);
                     //time_previous_movement = current_time;
                     uart_printf("Mouvement : %4d\r\n", maxMotion);
-                    //DEBUG_LOG("Mouvement : ");
                 }
             } else {
                 if (!is_immobile && ((HAL_GetTick() - last_motion_time) > SPD_IMMOBILE_TIME_MS)) {
                     is_immobile = true;
-                    uint8_t toSend[4] = { 0x00, 0xAB, 0xA1, 0xED };
-                    can_bus.send(toSend, 4);
+                    uint8_t toSend[6] = { 0x05, 0x8C, 0xE5, 0xAB, 0xA1, 0xED };
+                    can_bus.send(toSend, 6);
                     uart_printf("Plus rien ne bouge depuis : %4d\r\n", SPD_IMMOBILE_TIME_MS);
-                    //DEBUG_LOG("Immobile depuis %u ms ", IMU_IMMOBILE_TIME_MS);
                 }
             }
 
@@ -789,8 +779,6 @@ int application_loop(void) {
 //                uart_printf("Rien ne bouge : %4d\r\n", maxMotion);
 //            }
         }
-
-        HAL_Delay(5);
 
         // Ecriture message CAN de vie (pour vérifier que le can fonctionne)
         if (current_time >= time_for_can_bus_automatic_message) {
