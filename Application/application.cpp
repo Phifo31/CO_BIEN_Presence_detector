@@ -102,10 +102,11 @@ uint8_t sci_motion_map_stored = 0; // This flag is used to know when the SCI map
 
 CAN_BUS can_bus(CAN_SENSOR_ID);
 volatile bool auto_led_debug = true;
-uint32_t MOTION_THRESHOLD = 3000000; // sans unit
+
+uint32_t MOTION_THRESHOLD = 4000000; // sans unit
 uint32_t DIST_THRESHOLD = 400; // en mm
 uint32_t PERIODE_FILTRAGE = 10000; // en ms
-uint32_t SPD_IMMOBILE_TIME_MS = 2000;
+uint32_t SPD_IMMOBILE_TIME_MS = 5000; // en ms
 
 #if ENABLE_USER_LOG
 /**
@@ -709,22 +710,27 @@ int application_loop(void) {
     uint32_t time_previous_near = HAL_GetTick();
     uint32_t time_for_change_led_state = 0;
     uint32_t current_time = HAL_GetTick();
-    uint32_t last_motion_time;
+    uint32_t last_motion_time = 0xFFFFFFFF;
+    ;
     bool is_immobile = true;
 
+    USER_LOG("Application start main loop");
+
     while (1) {
+        current_time = HAL_GetTick();
         status = vl53lmz_check_data_ready(&LMZDev, &isReady);
         UNUSED(status);
-        maxMotion = 0;
-        minDist = 3500;
-        last_motion_time = 0xFFFFFFFF;
 
         if (isReady) {
             status = vl53lmz_get_ranging_data(&LMZDev, &RangingData);
+
+            // Recherche des points distance min et mouvement max dans les 64 points
+            maxMotion = 0;
+            minDist = 3500;
             for (i = 0; i < 64; i++) {
                 // getting minimum distance among all the ranging data
                 dist = RangingData.distance_mm[i] >> 2;
-                if (RangingData.target_status[i] != 0 && dist < minDist) {
+                if ((RangingData.target_status[i] != 0) && (dist < minDist)) {
                     minDist = dist;
                 }
 
@@ -734,60 +740,49 @@ int application_loop(void) {
                     maxMotion = motionPower;
                 }
             }
-
-            current_time = HAL_GetTick();
-            uart_printf("Proximite : %4d\r\n", minDist);
-
-            // if the closest distance is lower than the threshold for the first time in PERIODE_CAN_BUS_AUTOMATIC_MESSAGE, CAN message sent CAN message sent
-            if ((uint32_t) minDist <= DIST_THRESHOLD && (uint32_t) prevMinDist > DIST_THRESHOLD) {
-                if (current_time - time_previous_near >= PERIODE_FILTRAGE) {
-                    uint8_t toSend[6] = { 0x05, 0x8C, 0xD1, 0x57, 0xA4, 0xCE };
-                    can_bus.send(toSend, 6);
-                    time_previous_near = current_time;
-                }
-            }
-            prevMinDist = minDist;
+            //USER_LOG("minDist : %4d \t Motion Power %4d", minDist, maxMotion);
 
             // if the greatest motion power is higher than the threshold for the first time in PERIODE_CAN_BUS_AUTOMATIC_MESSAGE, CAN message sent
             if (maxMotion >= MOTION_THRESHOLD) {  // if motion_detected
                 last_motion_time = HAL_GetTick();
                 if (is_immobile) {
                     is_immobile = false;
-                    uint8_t toSend[6] = { 0x05, 0x8C, 0x5E, 0xBA, 0x1A, 0xDE };
-                    can_bus.send(toSend, 6);
+                    uint8_t toSend[8] = { 0x05, 0x8C, 0x5E, 0xBA, 0x1A, 0xDE, 0x04, (uint8_t) CAN_SENSOR_ID };
+                    can_bus.send(toSend, 8);
                     //time_previous_movement = current_time;
-                    uart_printf("Mouvement : %4d\r\n", maxMotion);
+                    USER_LOG("Mouvement : %d", maxMotion);
+                } else {
+                    USER_LOG("minDist : %4d \t Motion Power %4d", minDist, maxMotion);
                 }
+                // if the closest distance is lower than the threshold for the first time in PERIODE_CAN_BUS_AUTOMATIC_MESSAGE, CAN message sent CAN message sent
+                if ((uint32_t) minDist <= DIST_THRESHOLD && (uint32_t) prevMinDist > DIST_THRESHOLD) {
+                    if (current_time - time_previous_near >= PERIODE_FILTRAGE) {
+                        uint8_t toSend[8] = { 0x05, 0x8C, 0xD1, 0x57, 0xA4, 0xCE, 0x04, (uint8_t) CAN_SENSOR_ID };
+                        can_bus.send(toSend, 8);
+                        time_previous_near = current_time;
+                        USER_LOG("Approche : %d", minDist);
+                    }
+                }
+                prevMinDist = minDist;
+
             } else {
                 if (!is_immobile && ((HAL_GetTick() - last_motion_time) > SPD_IMMOBILE_TIME_MS)) {
                     is_immobile = true;
-                    uint8_t toSend[6] = { 0x05, 0x8C, 0xE5, 0xAB, 0xA1, 0xED };
-                    can_bus.send(toSend, 6);
-                    uart_printf("Plus rien ne bouge depuis : %4d\r\n", SPD_IMMOBILE_TIME_MS);
+                    uint8_t toSend[8] = { 0x05, 0x8C, 0xE5, 0xAB, 0xA1, 0xED, 0x04, (uint8_t) CAN_SENSOR_ID };
+                    can_bus.send(toSend, 8);
+                    USER_LOG("Absence de mouvement depuis : %d", SPD_IMMOBILE_TIME_MS);
                 }
             }
-
-//            if (maxMotion >= MOTION_THRESHOLD) {
-//                uart_printf("Mouvement : %4d\r\n", maxMotion);
-//                if (current_time - time_previous_movement >= PERIODE_FILTRAGE) {
-//                    //uart_printf("Curr time %8u Prev time %8u Diff %8u\n",current_time,time_previous_movement, current_time-time_previous_movement);
-//                    uint8_t toSend[4] = { 0x5E, 0xBA, 0x1A, 0xDE, };
-//                    can_bus.send(toSend, 4);
-//                    time_previous_movement = current_time;
-//                }
-//            } else {
-//                uart_printf("Rien ne bouge : %4d\r\n", maxMotion);
-//            }
         }
 
-        // Ecriture message CAN de vie (pour vérifier que le can fonctionne)
+        // Debug : écriture message CAN de vie (pour vérifier que le can fonctionne)
         if (current_time >= time_for_can_bus_automatic_message) {
-            uint8_t toSend[8] = { 0x04, 0x74, 0xC0, 0xFF, 0xEE, 0xBA, 0xDB, 0xAD };
+            uint8_t toSend[8] = { 0xC0, 0xFF, 0xEE, 0xBA, 0xDB, 0xAD, 0x04, (uint8_t) CAN_SENSOR_ID };
             can_bus.send(toSend, 8);
             time_for_can_bus_automatic_message += PERIODE_CAN_BUS_AUTOMATIC_MESSAGE;
         }
 
-        // Modification état led debug (pour vérifier que l'application fonctionne)
+        // Debug : modification état led debug (pour vérifier que l'application fonctionne)
         if (current_time >= time_for_change_led_state) {
             time_for_change_led_state += change_state_user_led();
         }

@@ -45,8 +45,8 @@ uint16_t msec2sec(uint32_t n, uint16_t *reste);
 #if ENABLE_USER_LOG
 #define USER_LOG(fmt, ...) ({ \
             seconds = msec2sec(HAL_GetTick(), &reste); \
-            printf("%05u:%03u - ", seconds, reste); \
-            printf("[USER] " fmt "\r\n", ##__VA_ARGS__); })
+            uart_printf("%05u:%03u - ", seconds, reste); \
+            uart_printf("[USER] " fmt "\r\n", ##__VA_ARGS__); })
 #else
   #define USER_LOG(fmt, ...)
 #endif
